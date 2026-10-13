@@ -272,7 +272,8 @@ const CATS = {
   salary: 'Salary', rent: 'Rent income', freelance: 'Freelance receipts', profit: 'Bank profit', zakat: 'Zakat',
   donation: 'Donation', expense: 'Personal spending', gift: 'Gift received', loan: 'Loan received', unclear: 'Needs a decision', other: 'Other'
 };
-function classifyTxn(desc, credit, debit) {
+function classifyTxn(desc, credit, debit, mode) {
+  if (mode === 'business') return classifyBiz(desc, credit, debit);
   const d = desc.toLowerCase();
   if (/salary|payroll|sal cr/.test(d)) return { cat: 'salary', conf: 0.97 };
   if (/rent|tenant/.test(d)) return { cat: 'rent', conf: 0.93 };
@@ -285,7 +286,8 @@ function classifyTxn(desc, credit, debit) {
   return { cat: 'other', conf: 0.5 };
 }
 
-function genSampleBank() {
+function genSampleBank(mode) {
+  if (mode === 'business') return genBizBank();
   const rows = [];
   const add = (date, desc, credit, debit, extra) => {
     const c = classifyTxn(desc, credit, debit);
@@ -309,9 +311,9 @@ function genSampleBank() {
   return rows;
 }
 
-function bankTotals(bank) {
-  const t = {};
-  Object.keys(CATS).forEach(k => (t[k] = { n: 0, credit: 0, debit: 0, conf: 0 }));
+function bankTotals(bank, mode) {
+  const t = {}, cats = mode === 'business' ? CATS_B : CATS;
+  Object.keys(cats).forEach(k => (t[k] = { n: 0, credit: 0, debit: 0, conf: 0 }));
   bank.forEach(r => { const x = t[r.cat] || t.other; x.n++; x.credit += r.credit; x.debit += r.debit; x.conf += r.conf; });
   Object.values(t).forEach(x => { x.conf = x.n ? x.conf / x.n : 0; });
   return t;
@@ -333,7 +335,7 @@ function parseCSV(txt) {
   });
   return out;
 }
-function importBank(txt) {
+function importBank(txt, mode) {
   const rows = parseCSV(txt);
   if (rows.length < 2) return { error: 'The file has no data rows.' };
   const head = rows[0].map(h => h.toLowerCase());
@@ -346,7 +348,7 @@ function importBank(txt) {
     let credit = iCred >= 0 ? num(r[iCred]) : 0, debit = iDeb >= 0 ? num(r[iDeb]) : 0;
     if (iAmt >= 0 && !credit && !debit) { const a = num(r[iAmt]); if (a >= 0) credit = a; else debit = -a; }
     const desc = r[iDesc] || '';
-    const c = classifyTxn(desc, credit, debit);
+    const c = classifyTxn(desc, credit, debit, mode);
     return { id: i, date: iDate >= 0 ? r[iDate] : '', desc, credit, debit, cat: c.cat, conf: c.conf, confirmed: false };
   }).filter(r => r.credit || r.debit);
   return { bank };
@@ -354,7 +356,7 @@ function importBank(txt) {
 
 /* ---------- documents (simulated OCR text, real field extraction) ---------- */
 const NUMRE = '([0-9OoSIlB,]+)';
-const DOCS = [
+const IDOCS = [
   { id: 'd1', name: 'Salary certificate TY2026', kind: 'PDF', pages: 1,
     text: 'ORBIT SOFTWARE (PVT) LTD\nSALARY AND TAX DEDUCTION CERTIFICATE\nTax Year 2026 (1 Jul 2025 to 30 Jun 2026)\nEmployee: ZARA KHAN\nGross Salary (annual): Rs. 3,420,000\nIncome Tax Deducted u/s 149: Rs. 412,000',
     fields: [
@@ -380,6 +382,8 @@ const DOCS = [
     text: 'KARWAN WELFARE TRUST\nReceipt No. 2291   Date: 12 March 2026\nAmount received: Rs. 1OO,OOO\nApproval status of donee: not printed on receipt',
     fields: [ { k: 'donation', label: 'Donation paid', re: new RegExp('Amount received[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 } ] }
 ];
+const DOCS = IDOCS.slice();
+function setDocs(l) { DOCS.length = 0; l.forEach(d => DOCS.push(d)); }
 
 function extractDoc(S, doc) {
   return doc.fields.map(f => {
@@ -401,6 +405,7 @@ function applyDoc(S, doc) {
 
 /* ---------- validation engine ---------- */
 function runChecks(S) {
+  if (S.type === 'business') return runBizChecks(S);
   const p = S.p, c = compute(p), w = wealthCalc(p, c), bt = bankTotals(S.bank), out = [];
   const add = (id, title, status, detail, extra) => out.push(Object.assign({ id, title, status, detail }, extra || {}));
   const near = (a, b, t) => Math.abs(a - b) <= Math.max(1, t * Math.max(a, b));
@@ -447,13 +452,15 @@ function runChecks(S) {
 function readiness(S, checks) {
   const docsDone = DOCS.filter(d => S.docState[d.id].status === 'done').length;
   const lowFields = Object.keys(S.meta).filter(k => S.meta[k].conf < 0.8 && !S.meta[k].confirmed).length;
-  const c = compute(S.p), w = wealthCalc(S.p, c);
+  const biz = S.type === 'business', rc = biz ? bizRecon(S) : null;
+  const c = biz ? null : compute(S.p), w = biz ? null : wealthCalc(S.p, c);
   const passRatio = checks.filter(x => x.status === 'pass').length / Math.max(1, checks.length);
   const openEsc = S.esc.filter(e => e.mine && e.status === 'open').length;
   const parts = [
     { k: 'Documents read', max: 25, v: 25 * docsDone / DOCS.length, tip: 'Run extraction on the remaining documents.' },
     { k: 'Low-confidence values confirmed', max: 15, v: 15 * (1 - Math.min(1, lowFields / 3)), tip: 'Confirm or correct values marked Medium or Low.' },
-    { k: 'Wealth Statement reconciled', max: 25, v: w.ok ? 25 : 25 * Math.max(0, 1 - Math.abs(w.gap) / 1000000), tip: 'Explain the unexplained difference.' },
+    biz ? { k: 'Sales reconciled with bank', max: 25, v: rc.ok ? 25 : 25 * Math.max(0, 1 - Math.abs(rc.gap) / Math.max(1, 0.1 * rc.expected)), tip: 'Explain the difference between bank receipts and recorded sales.' }
+      : { k: 'Wealth Statement reconciled', max: 25, v: w.ok ? 25 : 25 * Math.max(0, 1 - Math.abs(w.gap) / 1000000), tip: 'Explain the unexplained difference.' },
     { k: 'Validation checks passed', max: 20, v: 20 * passRatio, tip: 'Resolve the failed and warned checks.' },
     { k: 'Professional questions answered', max: 5, v: openEsc ? 0 : 5, tip: 'Wait for the professional reply.' },
     { k: 'Taxpayer review signed off', max: 10, v: S.signoff.reviewed ? 10 : 0, tip: 'Review the return and confirm it.' }
@@ -462,27 +469,177 @@ function readiness(S, checks) {
   return { score, parts };
 }
 /*END ENGINE*/
+/*BIZ ENGINE*/
+const CATS_B = { sales: 'Customer receipts', purchases: 'Supplier payments', rentx: 'Shop rent paid', payroll: 'Payroll', utilities: 'Utilities', salestax: 'Sales tax paid', cash: 'Cash withdrawals', capital: 'Owner capital', loan: 'Loan received', unrecorded: 'Unrecorded sales', unclear: 'Needs a decision', other: 'Other' };
+const CC = () => (S.type === 'business' ? CATS_B : CATS);
+const ENTITY = { sole: 'Sole proprietor', aop: 'Partnership (AOP)', company: 'Private limited company' };
+/* Business rules used by the prototype. Verify against the current Finance Act before filing. */
+const BR = { company: 0.29, minTax: 0.0125, minThr: 100000000, cashDis: 0.5, cashLimit: 200000, stax: 0.18, mach: 0.15, comp: 0.30, furn: 0.15, carryYears: 2 };
+
+function classifyBiz(desc, credit, debit) {
+  const d = desc.toLowerCase();
+  if (/sales tax|fbr|\bpra\b|\bsrb\b/.test(d)) return { cat: 'salestax', conf: 0.95 };
+  if (/payroll|salary|wages/.test(d)) return { cat: 'payroll', conf: 0.96 };
+  if (/\brent\b/.test(d)) return { cat: 'rentx', conf: 0.93 };
+  if (/k-electric|sui |ptcl|utility|wapda|\bbill\b/.test(d)) return { cat: 'utilities', conf: 0.9 };
+  if (/supplier|purchase|vendor/.test(d)) return { cat: 'purchases', conf: 0.92 };
+  if (/customer|receipts|inv batch|pos settlement/.test(d)) return { cat: 'sales', conf: 0.95 };
+  if (/cash withdrawal|atm/.test(d)) return { cat: 'cash', conf: 0.88 };
+  if (credit > 0 && /ibft|raast|transfer|trf|fund/.test(d)) return { cat: 'unclear', conf: 0.42 };
+  return { cat: 'other', conf: 0.5 };
+}
+function genBizBank() {
+  const rows = [], d2 = n => String(n).padStart(2, '0');
+  const add = (date, desc, credit, debit) => { const c = classifyBiz(desc, credit, debit); rows.push({ date, desc, credit, debit, cat: c.cat, conf: c.conf, confirmed: false }); };
+  [[2025,7],[2025,8],[2025,9],[2025,10],[2025,11],[2025,12],[2026,1],[2026,2],[2026,3],[2026,4],[2026,5],[2026,6]].forEach(([y, m], i) => {
+    add(`${y}-${d2(m)}-20`, 'RAAST FROM CUSTOMER RECEIPTS INV BATCH', 2360000, 0);
+    add(`${y}-${d2(m)}-12`, 'IBFT TO SUPPLIER ALI TRADERS PURCHASE', 0, i === 11 ? 1553674 : 1553666);
+    add(`${y}-${d2(m)}-05`, 'SHOP RENT PAYMENT', 0, 80000);
+    add(`${y}-${d2(m)}-27`, 'PAYROLL BATCH STAFF SALARY', 0, 200000);
+    add(`${y}-${d2(m)}-18`, 'K-ELECTRIC AND PTCL BILL', 0, 35000);
+    add(`${y}-${d2(m)}-15`, 'FBR SALES TAX PAYMENT', 0, 123000);
+    if (i % 4 === 1) add(`${y}-${d2(m)}-08`, 'CASH WITHDRAWAL SELF', 0, 150000);
+  });
+  add('2026-02-18', 'IBFT FROM A RAZA', 1200000, 0);
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  rows.forEach((r, i) => (r.id = i));
+  return rows;
+}
+
+function computeBiz(p, ty) {
+  ty = ty || p.ty;
+  const extra = Math.round(p.unrecGross / (1 + BR.stax));
+  const sales = p.sales + extra;
+  const cogs = p.openStock + p.purchases - p.closeStock;
+  const gp = sales - cogs;
+  const opex = p.salaries + p.rent + p.utilities + p.otherExp;
+  const dep = p.wdvMach * BR.mach + p.wdvComp * BR.comp + p.wdvFurn * BR.furn;
+  const profit = gp - opex - dep;
+  const cashAdd = p.cashOver200 * BR.cashDis;
+  const taxable = Math.max(0, profit + cashAdd);
+  const company = p.entity === 'company';
+  const slab = company ? null : taxOn(SLABS[ty].non, taxable);
+  const normal = Math.round(company ? taxable * BR.company : slab.tax);
+  const minApplies = company || sales >= BR.minThr;
+  const minTax = minApplies ? Math.round(sales * BR.minTax) : 0;
+  const minBites = minTax > normal;
+  const chargeable = Math.max(normal, minTax);
+  const carry = minBites ? minTax - normal : 0;
+  const paid = p.whtSupplies + p.advance;
+  const balance = chargeable - paid;
+  const outTax = p.outputTax + (p.unrecGross - extra);
+  const netStax = outTax - p.inputTax;
+  return { ty, extra, sales, cogs, gp, opex, dep, profit, cashAdd, taxable, company, slab, normal, minApplies, minTax, minBites, chargeable, carry, paid, balance, net: chargeable,
+    outTax, netStax, eff: sales > 0 ? chargeable / sales : 0, margin: sales > 0 ? gp / sales : 0 };
+}
+function bizRecon(S) {
+  const c = computeBiz(S.p), bt = bankTotals(S.bank, 'business');
+  const banked = bt.sales.credit + bt.unrecorded.credit, expected = c.sales + c.outTax, gap = banked - expected;
+  return { banked, expected, gap, ok: Math.abs(gap) <= Math.max(50000, 0.03 * expected) };
+}
+
+const BDOCS = [
+  { id: 'd1', name: 'Sales register and sales tax invoices', kind: 'CSV', pages: 6,
+    text: 'IMRAN TRADERS\nSALES REGISTER 1 Jul 2025 to 30 Jun 2026\nTotal sales (excl. sales tax): Rs. 24,000,000\nSales tax charged at 18%: Rs. 4,320,000\nInvoices issued: 1,186',
+    fields: [
+      { k: 'sales', label: 'Sales (excl. sales tax)', re: new RegExp('Total sales[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.97 },
+      { k: 'outputTax', label: 'Sales tax charged', re: new RegExp('Sales tax charged[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.97 }] },
+  { id: 'd2', name: 'Business bank statement Jul 2025 to Jun 2026', kind: 'CSV', pages: 7,
+    text: 'SAMPLE BANK LTD  CURRENT ACCOUNT ENDING 7710\nSTATEMENT 01-07-2025 TO 30-06-2026\n(transactions are classified in the table below)',
+    fields: [{ k: 'bankReceipts', label: 'Customer receipts banked', fn: S => { const t = bankTotals(S.bank, 'business').sales; return { value: t.credit, conf: t.n ? t.conf : 0.5 }; } }] },
+  { id: 'd3', name: 'Stock register and purchase invoices', kind: 'Scan', pages: 5,
+    text: 'STOCK AND PURCHASE SUMMARY\nOpening stock 1 Jul 2025: Rs. 3,100,000\nPurchases for the year: Rs. 15,8OO,OOO\nClosing stock 30 Jun 2026: Rs. 2,900,000\nInput sales tax paid: Rs. 2,844,000',
+    fields: [
+      { k: 'openStock', label: 'Opening stock', re: new RegExp('Opening stock[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'purchases', label: 'Purchases', re: new RegExp('Purchases for[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'closeStock', label: 'Closing stock', re: new RegExp('Closing stock[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'inputTax', label: 'Input sales tax', re: new RegExp('Input sales tax[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 }] },
+  { id: 'd4', name: 'Payroll and expense sheet', kind: 'Scan', pages: 2,
+    text: 'MONTHLY EXPENSE SUMMARY (HANDWRITTEN)\nStaff salaries: Rs. 2,4OO,OOO\nShop rent: Rs. 960,000\nUtilities: Rs. 420,000\nOther operating expenses: Rs. 1,200,000\nCash payments over 200,000 each: Rs. 6OO,OOO',
+    fields: [
+      { k: 'salaries', label: 'Staff salaries', re: new RegExp('Staff salaries[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'rent', label: 'Shop rent', re: new RegExp('Shop rent[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'utilities', label: 'Utilities', re: new RegExp('Utilities[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'otherExp', label: 'Other operating expenses', re: new RegExp('Other operating[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'cashOver200', label: 'Cash payments over Rs 200,000', re: new RegExp('Cash payments[^\\n]*?:\\s*Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 }] },
+  { id: 'd5', name: 'Fixed asset register', kind: 'PDF', pages: 1,
+    text: 'FIXED ASSET REGISTER (WRITTEN DOWN VALUE AT 1 Jul 2025)\nMachinery and shop fittings: Rs. 1,800,000\nComputers and POS: Rs. 400,000\nFurniture: Rs. 500,000',
+    fields: [
+      { k: 'wdvMach', label: 'Machinery and fittings', re: new RegExp('Machinery[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.96 },
+      { k: 'wdvComp', label: 'Computers and POS', re: new RegExp('Computers[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.96 },
+      { k: 'wdvFurn', label: 'Furniture', re: new RegExp('Furniture[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.96 }] },
+  { id: 'd6', name: 'Tax deducted by customers (certificates)', kind: 'Photo', pages: 3,
+    text: 'TAX DEDUCTED AT SOURCE ON SUPPLIES\nSummary of certificates issued to Imran Traders\nTotal tax deducted: Rs. 34O,OOO',
+    fields: [{ k: 'whtSupplies', label: 'Tax deducted by customers', re: new RegExp('Total tax deducted[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 }] }
+];
+
+function runBizChecks(S) {
+  const p = S.p, c = computeBiz(p), bt = bankTotals(S.bank, 'business'), rc = bizRecon(S), out = [];
+  const add = (id, title, status, detail, extra) => out.push(Object.assign({ id, title, status, detail }, extra || {}));
+  const near = (a, b, t) => Math.abs(a - b) <= Math.max(1, t * Math.max(a, b));
+  const pending = DOCS.filter(d => S.docState[d.id].status !== 'done');
+  if (pending.length) add('docs', 'Documents waiting for extraction', 'warn', `${pending.length} of ${DOCS.length} documents have not been read yet: ${pending.map(d => d.name).join(', ')}.`, { go: 'documents', conf: 1 });
+  else add('docs', 'All documents read', 'pass', 'Every uploaded document has been extracted and mapped to the return.', { conf: 1 });
+  if (p.sales > 0 && bt.sales.n) {
+    if (rc.ok) add('recon', 'Bank receipts match recorded sales plus sales tax', 'pass', `The bank shows ${rs(rc.banked)} from customers. The sales register plus sales tax gives ${rs(rc.expected)}.`, { conf: 0.93 });
+    else add('recon', 'Bank receipts differ from recorded sales', 'fail', `The bank shows ${rs(rc.banked)} from customers but sales plus sales tax are ${rs(rc.expected)}. Difference ${rs(rc.gap)}.`, { conf: 0.9, go: 'documents', ask: 'Bank receipts differ from recorded sales by ' + rs(rc.gap) });
+  }
+  S.bank.filter(r => r.cat === 'unclear' && !r.confirmed).forEach(r => add('unc' + r.id, 'Large credit with no clear source', 'warn', `${r.date}: ${r.desc} for ${rs(r.credit)}. Was it owner capital, a loan or an unrecorded sale? Unrecorded sales raise turnover and tax.`, { conf: r.conf, txn: r.id, ask: 'Large transfer of ' + rs(r.credit) + ' with unknown source' }));
+  if (p.sales > 0 && p.outputTax > 0) {
+    if (near(p.outputTax, p.sales * BR.stax, 0.01)) add('stax', 'Sales tax charged matches 18% of sales', 'pass', `${rs(p.outputTax)} is 18% of ${rs(p.sales)}.`, { conf: 0.95 });
+    else add('stax', 'Sales tax charged does not match 18% of sales', 'warn', `Expected about ${rs(p.sales * BR.stax)} but the register shows ${rs(p.outputTax)}. Some sales may be exempt or zero-rated.`, { conf: 0.8, ask: 'Sales tax charged differs from 18% of sales' });
+  }
+  if (p.purchases > 0 && bt.purchases.n) {
+    const e = p.purchases + p.inputTax;
+    if (near(bt.purchases.debit, e, 0.05)) add('pur', 'Supplier payments match purchase invoices', 'pass', `Bank payments of ${rs(bt.purchases.debit)} agree with purchases plus input tax (${rs(e)}).`, { conf: 0.92 });
+    else add('pur', 'Supplier payments differ from purchase invoices', 'warn', `Bank ${rs(bt.purchases.debit)} against invoices of ${rs(e)}. Some purchases may have been paid in cash.`, { conf: 0.8, ask: 'Supplier payments differ from invoices' });
+  }
+  if (p.salaries > 0 && bt.payroll.n) {
+    if (near(bt.payroll.debit, p.salaries, 0.05)) add('pay', 'Payroll in bank matches salaries claimed', 'pass', `Bank payroll ${rs(bt.payroll.debit)} agrees with salaries of ${rs(p.salaries)}.`, { conf: 0.94 });
+    else add('pay', 'Payroll in bank differs from salaries claimed', 'warn', `Bank ${rs(bt.payroll.debit)} against ${rs(p.salaries)} claimed.`, { conf: 0.8 });
+  }
+  if (p.rent > 0 && bt.rentx.n) {
+    if (near(bt.rentx.debit, p.rent, 0.05)) add('rent', 'Rent in bank matches rent claimed', 'pass', `Bank rent ${rs(bt.rentx.debit)} agrees with ${rs(p.rent)} claimed.`, { conf: 0.93 });
+    else add('rent', 'Rent in bank differs from rent claimed', 'warn', `Bank ${rs(bt.rentx.debit)} against ${rs(p.rent)} claimed.`, { conf: 0.8 });
+  }
+  if (bt.salestax.n && p.outputTax > 0 && p.inputTax > 0) {
+    if (near(bt.salestax.debit, c.netStax, 0.05)) add('staxpay', 'Sales tax paid matches output less input tax', 'pass', `Payments of ${rs(bt.salestax.debit)} agree with ${rs(p.outputTax)} output less ${rs(p.inputTax)} input.`, { conf: 0.92 });
+    else add('staxpay', 'Sales tax paid differs from the net amount due', 'warn', `Bank ${rs(bt.salestax.debit)} against ${rs(c.netStax)} due. ${c.outTax - 0 ? '' : ''}Check for unpaid or over-paid periods.`, { conf: 0.8, ask: 'Sales tax payments differ from the net amount due' });
+  }
+  if (p.cashOver200 > 0) add('cash', 'Large cash payments are partly disallowed', 'warn', `Cash payments over Rs 200,000 total ${rs(p.cashOver200)}. ${pc(BR.cashDis)} of that, ${rs(c.cashAdd)}, is added back to taxable income. Paying by bank avoids this.`, { conf: S.meta.cashOver200 ? S.meta.cashOver200.conf : 0.8, ask: 'Please review cash payments over Rs 200,000' });
+  if (c.minBites) add('min', 'Minimum tax is higher than normal tax', 'warn', `Minimum tax ${rs(c.minTax)} exceeds normal tax ${rs(c.normal)}. The excess ${rs(c.carry)} can be carried forward for ${BR.carryYears} years.`, { conf: 0.9, go: 'whatif' });
+  if (c.balance > 0) add('bal', 'Tax is still payable', 'warn', `After tax deducted by customers and advance tax, ${rs(c.balance)} remains to be paid before filing.`, { conf: 0.9, go: 'return' });
+  else add('bal', 'Tax paid covers the liability', 'pass', c.balance < 0 ? `A refund of ${rs(-c.balance)} is claimable.` : 'No balance is due.', { conf: 0.9 });
+  return out;
+}
+/*END BIZ ENGINE*/
 /*STATE*/
-function makeState() {
-  const S = {
-    role: 'taxpayer', view: 'assistant', proView: 'clients',
-    p: { ty: 2026, salary: 0, whtSalary: 0, rent: 0, bizReceipts: 0, bizExpenses: 0, profitOnDebt: 0, zakat: 0, donation: 0,
-         advance: 25000, expenses: 2600000, gifts: [],
-         wealth: [
-           { name: 'House (cost)', type: 'asset', open: 18000000, close: 18000000 },
-           { name: 'Vehicle', type: 'asset', open: 3500000, close: 3500000 },
-           { name: 'Bank balances', type: 'asset', open: 1200000, close: 2420000 },
-           { name: 'Mutual funds', type: 'asset', open: 600000, close: 1000000 },
-           { name: 'Cash in hand', type: 'asset', open: 150000, close: 150000 },
-           { name: 'Car loan', type: 'liab', open: 800000, close: 340000 }
-         ] },
-    meta: { expenses: { conf: 0.6, src: 'Your estimate' }, advance: { conf: 0.85, src: 'Your entry' } },
-    bank: genSampleBank(),
-    docState: {},
-    chat: [], esc: [], signoff: { reviewed: false },
-    a11y: { text: 'normal', contrast: 'normal' },
-    drawer: null, glossQ: '', wi: null, copilot: [], proSel: null
-  };
+function makeState(type, entity) {
+  type = type || 'individual';
+  setDocs(type === 'business' ? BDOCS : IDOCS);
+  const S = { role: 'taxpayer', view: 'assistant', proView: 'clients', type, docState: {}, chat: [], esc: [], signoff: { reviewed: false },
+    a11y: { text: 'normal', contrast: 'normal' }, drawer: null, glossQ: '', wi: null, copilot: [], proSel: null };
+  if (type === 'business') {
+    S.p = { ty: 2026, entity: entity || 'sole', name: 'Imran Traders', sales: 0, outputTax: 0, unrecGross: 0, openStock: 0, purchases: 0, closeStock: 0, inputTax: 0,
+      salaries: 0, rent: 0, utilities: 0, otherExp: 0, cashOver200: 0, wdvMach: 0, wdvComp: 0, wdvFurn: 0, whtSupplies: 0, advance: 150000, loans: 0, capital: 0, bankReceipts: 0 };
+    S.meta = { advance: { conf: 0.85, src: 'Your entry' } };
+    S.bank = genBizBank();
+    DOCS.forEach(d => (S.docState[d.id] = { status: 'pending', fields: [] }));
+    ['d1', 'd2', 'd3', 'd5'].forEach(id => applyDoc(S, DOCS.find(d => d.id === id)));
+    return S;
+  }
+  S.p = { ty: 2026, salary: 0, whtSalary: 0, rent: 0, bizReceipts: 0, bizExpenses: 0, profitOnDebt: 0, zakat: 0, donation: 0,
+    advance: 25000, expenses: 2600000, gifts: [],
+    wealth: [
+      { name: 'House (cost)', type: 'asset', open: 18000000, close: 18000000 },
+      { name: 'Vehicle', type: 'asset', open: 3500000, close: 3500000 },
+      { name: 'Bank balances', type: 'asset', open: 1200000, close: 2420000 },
+      { name: 'Mutual funds', type: 'asset', open: 600000, close: 1000000 },
+      { name: 'Cash in hand', type: 'asset', open: 150000, close: 150000 },
+      { name: 'Car loan', type: 'liab', open: 800000, close: 340000 }
+    ] };
+  S.meta = { expenses: { conf: 0.6, src: 'Your estimate' }, advance: { conf: 0.85, src: 'Your entry' } };
+  S.bank = genSampleBank();
   DOCS.forEach(d => (S.docState[d.id] = { status: 'pending', fields: [] }));
   ['d1', 'd2', 'd3', 'd4'].forEach(id => applyDoc(S, DOCS.find(d => d.id === id)));
   return S;
@@ -510,7 +667,8 @@ function confBadge(c) {
   return `<span class="conf ${l}" aria-hidden="true"><i style="width:${Math.round(c * 100)}%"></i></span><span class="cw ${l}">${confWord(c)} ${Math.round(c * 100)}%</span>`;
 }
 function derive() {
-  const c = compute(S.p), w = wealthCalc(S.p, c), checks = runChecks(S), rd = readiness(S, checks);
+  const biz = S.type === 'business';
+  const c = biz ? computeBiz(S.p) : compute(S.p), w = biz ? null : wealthCalc(S.p, c), checks = runChecks(S), rd = readiness(S, checks);
   return { c, w, checks, rd };
 }
 function toast(msg) {
@@ -629,6 +787,8 @@ function explain(key) {
   } else if (key === 'score') {
     title = 'How the readiness score is built';
     steps = D.rd.parts.map(x => [x.k, `${Math.round(x.v)} of ${x.max} points. ${x.v < x.max ? x.tip : 'Complete.'}`]);
+  } else if (/^b_/.test(key)) {
+    return explainBiz(key);
   } else if (key === 'conf') {
     title = 'What the confidence indicators mean';
     conf = 1;
@@ -647,6 +807,7 @@ function explain(key) {
 /*UI2*/
 /* ---------- actions on state ---------- */
 function setTxnCat(id, cat) {
+  if (S.type === 'business') return setTxnCatBiz(id, cat);
   const r = S.bank.find(x => x.id === id); if (!r) return;
   S.p.gifts = S.p.gifts.filter(g => g.txn !== id);
   S.p.wealth = S.p.wealth.filter(x => x.txn !== id);
@@ -658,8 +819,8 @@ function setTxnCat(id, cat) {
 function escalate(topic) {
   if (S.esc.some(e => e.mine && e.topic === topic && e.status === 'open')) { toast('Already with a tax professional.'); return false; }
   const D = derive();
-  S.esc.unshift({ id: 'e' + Date.now(), mine: true, client: 'Zara Khan (this return)', topic, status: 'open',
-    ctx: `Taxable ${rs(D.c.taxable)}, ${D.c.salaried ? 'salaried' : 'non-salaried'} slabs, balance ${rs(D.c.balance)}, Wealth Statement difference ${rs(D.w.gap)}, readiness ${D.rd.score}/100.`,
+  S.esc.unshift({ id: 'e' + Date.now(), mine: true, client: (S.type === 'business' ? S.p.name : 'Zara Khan') + ' (this return)', topic, status: 'open',
+    ctx: S.type === 'business' ? `Turnover ${rs(D.c.sales)}, taxable ${rs(D.c.taxable)}, tax chargeable ${rs(D.c.chargeable)}, balance ${rs(D.c.balance)}, readiness ${D.rd.score}/100.` : `Taxable ${rs(D.c.taxable)}, ${D.c.salaried ? 'salaried' : 'non-salaried'} slabs, balance ${rs(D.c.balance)}, Wealth Statement difference ${rs(D.w.gap)}, readiness ${D.rd.score}/100.`,
     thread: [{ who: 'AI', t: 'Escalated with extracted figures, checks and document list attached.' }] });
   toast('Sent to the tax professional queue.');
   return true;
@@ -685,6 +846,7 @@ function summaryLine(before, after) {
   return bits.join(', ');
 }
 function respond(text) {
+  if (S.type === 'business') return respondBiz(text);
   const t = text.toLowerCase();
   const am = amounts(t), a = am[0];
   const before = compute(S.p), wb = wealthCalc(S.p, before);
@@ -746,10 +908,11 @@ function respond(text) {
   botSay('I can record income, Zakat, donations, gifts and loans from plain sentences, explain any number, look up tax terms, and pass a question to a tax professional. Try one of the suggestions below.', { conf: 0.6 });
 }
 function dueInfo() {
-  const due = new Date(S.p.ty + '-09-30T23:59:59'), days = Math.ceil((due - TODAY) / 86400000);
+  const co = S.type === 'business' && S.p.entity === 'company', dd = co ? '31 December' : '30 September';
+  const due = new Date(S.p.ty + (co ? '-12-31' : '-09-30') + 'T23:59:59'), days = Math.ceil((due - TODAY) / 86400000);
   const msg = days >= 0
-    ? `The usual filing date for tax year ${S.p.ty} is 30 September ${S.p.ty}, which is ${days} days away. Check FBR notices for any extension.`
-    : `The usual filing date for tax year ${S.p.ty} was 30 September ${S.p.ty}, ${-days} days ago. If you have not filed, do so as soon as the return is reviewed, and check FBR notices for any extension. Late filing can bring a penalty and removal from the Active Taxpayers List.`;
+    ? `The usual filing date for tax year ${S.p.ty} is ${dd} ${S.p.ty}, which is ${days} days away. Check FBR notices for any extension.`
+    : `The usual filing date for tax year ${S.p.ty} was ${dd} ${S.p.ty}, ${-days} days ago. If you have not filed, do so as soon as the return is reviewed, and check FBR notices for any extension. Late filing can bring a penalty and removal from the Active Taxpayers List.`;
   return { days, msg, due };
 }
 
@@ -786,16 +949,16 @@ function viewAssistant(D) {
   const chips = [];
   if (S.bank.some(r => r.cat === 'unclear' && !r.confirmed)) chips.push('It was a gift of 500k from my father', 'It was a loan of 500k from my brother');
   chips.push(compute(S.p).salaried ? 'Which slabs apply to me and why?' : 'Why am I on non-salaried slabs?', 'How much tax do I owe?', 'What is ATL?', 'Open the return form', 'I paid zakat of 80k', 'I want to talk to a tax professional');
-  const rows = FIELDS.map(([k, l]) => {
+  const rows = (S.type === 'business' ? BFIELDS : FIELDS).map(([k, l]) => {
     const m = S.meta[k], v = S.p[k];
     return `<tr><td>${l}</td><td class="num">${rs(v)}</td><td class="small">${m ? esc(m.src) : '<span class="muted">not provided</span>'}${m ? '<br>' + confBadge(m.conf) : ''}${m && m.conf < 0.8 && !m.confirmed ? ` <button class="btn sm quiet" data-act="confirm" data-v="${k}">Confirm</button>` : ''}</td></tr>`;
   }).join('');
-  const gifts = S.p.gifts.reduce((a, g) => a + g.amount, 0);
+  const gifts = (S.p.gifts || []).reduce((a, g) => a + g.amount, 0);
   return `${vhead('Conversational assistant', 'Describe your finances in plain English. The assistant records what you say, explains it and shows how confident it is. Voice reading is built in.')}
   <div class="assist">
     <section class="card chat" aria-label="Conversation">
       <div class="msgs" id="msgs" aria-live="polite">${msgs}</div>
-      <div class="chips">${chips.map(c => `<button class="chip" data-act="say" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+      <div class="chips">${(S.type === 'business' ? bizChips() : chips).map(c => `<button class="chip" data-act="say" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
       <form class="composer" id="chatForm">
         <label class="sr" for="chatIn" style="position:absolute;left:-9999px">Message</label>
         <input type="text" id="chatIn" placeholder="Type or speak. Press / to focus." autocomplete="off">
@@ -806,7 +969,7 @@ function viewAssistant(D) {
     <aside class="card" aria-label="What the assistant knows">
       <h2>What I know so far</h2>
       <div class="tw"><table><thead><tr><th>Item</th><th class="r">Value</th><th>Source and confidence</th></tr></thead><tbody>${rows}
-        <tr><td>Gifts received</td><td class="num">${rs(gifts)}</td><td class="small">${gifts ? 'Your message' : '<span class="muted">none</span>'}</td></tr></tbody></table></div>
+        ${S.type === 'business' ? '' : `<tr><td>Gifts received</td><td class="num">${rs(gifts)}</td><td class="small">${gifts ? 'Your message' : '<span class="muted">none</span>'}</td></tr>`}</tbody></table></div>
       <button class="btn sm quiet" data-act="explain" data-v="conf">How is confidence scored?</button>
     </aside>
   </div>`;
@@ -824,9 +987,9 @@ function docCard(d) {
     ${body}<details><summary>Show OCR text</summary><pre>${esc(d.text)}</pre></details></article>`;
 }
 function viewDocuments(D) {
-  const bt = bankTotals(S.bank);
-  const sumRows = Object.keys(CATS).filter(k => bt[k].n).map(k => `<tr><td>${CATS[k]}</td><td class="num">${bt[k].n}</td><td class="num">${bt[k].credit ? rs(bt[k].credit) : ''}</td><td class="num">${bt[k].debit ? rs(bt[k].debit) : ''}</td><td>${confBadge(bt[k].conf)}</td></tr>`).join('');
-  const opts = c => Object.keys(CATS).map(k => `<option value="${k}" ${k === c ? 'selected' : ''}>${CATS[k]}</option>`).join('');
+  const bt = bankTotals(S.bank, S.type);
+  const sumRows = Object.keys(CC()).filter(k => bt[k].n).map(k => `<tr><td>${CC()[k]}</td><td class="num">${bt[k].n}</td><td class="num">${bt[k].credit ? rs(bt[k].credit) : ''}</td><td class="num">${bt[k].debit ? rs(bt[k].debit) : ''}</td><td>${confBadge(bt[k].conf)}</td></tr>`).join('');
+  const opts = c => Object.keys(CC()).map(k => `<option value="${k}" ${k === c ? 'selected' : ''}>${CC()[k]}</option>`).join('');
   const txRows = S.bank.map(r => `<tr${r.cat === 'unclear' && !r.confirmed ? ' style="background:var(--mid-soft)"' : ''}><td class="mono">${esc(r.date)}</td><td>${esc(r.desc)}</td><td class="num">${r.credit ? rs(r.credit) : ''}</td><td class="num">${r.debit ? rs(r.debit) : ''}</td>
     <td><select data-chg="txn" data-id="${r.id}" aria-label="Category for ${esc(r.desc)}">${opts(r.cat)}</select></td><td>${confBadge(r.conf)}</td></tr>`).join('');
   return `${vhead('AI document intelligence', 'Six sample documents run through OCR, field extraction, classification and confidence scoring. Read values flow straight into the return and the checks. The bank statement below is classified line by line, and a real CSV can replace it.')}
@@ -842,6 +1005,7 @@ function viewDocuments(D) {
 
 /* ---------- Tax computation ---------- */
 function viewReturn(D) {
+  if (S.type === 'business') return viewBizReturn(D);
   const c = D.c, p = S.p, T = SLABS[p.ty];
   const slabRows = c.table.map((r, i) => `<tr${i === c.slab.idx ? ' style="background:var(--accent-soft);font-weight:600"' : ''}><td class="num">${rs(r[0])}</td><td class="num">${c.table[i + 1] ? rs(c.table[i + 1][0]) : 'and above'}</td><td class="num">${rs(r[1])}</td><td class="num">${pc(r[2])}</td></tr>`).join('');
   return `${vhead('Financial classification and tax preparation', 'Income is classified into heads, deductions and credits are applied, and the slab tables are chosen by the 75% rule. Every figure has a Why button.')}
@@ -913,6 +1077,7 @@ function viewChecks(D) {
 
 /* ---------- Readiness and timeline ---------- */
 function timelineEvents() {
+  if (S.type === 'business') return timelineEventsBiz();
   const ev = []; const L = (d, t, x) => ev.push({ d, t, x: x || '', k: 'law' });
   L('2025-07-01', 'Tax year 2026 begins', 'Income from this date belongs to the return you are preparing.');
   ['2025-09-15', '2025-12-15', '2026-03-15', '2026-06-15'].forEach(d => L(d, 'Advance tax instalment date', 'Applies if you pay advance tax.'));
@@ -993,6 +1158,7 @@ function wiHTML() {
   <h3>Normal tax as freelance income changes</h3>${curveSVG(q)}`;
 }
 function viewWhatIf() {
+  if (S.type === 'business') return viewBizWhatIf();
   if (!S.wi) wiInit();
   const q = S.wi;
   const sl = (k, label, min, max, step) => `<div class="sl"><label for="wi-${k}"><span>${label}</span><span class="mono" id="wv-${k}">${rs(q[k])}</span></label><input type="range" id="wi-${k}" min="${min}" max="${max}" step="${step}" value="${q[k]}" data-wi="${k}"></div>`;
@@ -1005,6 +1171,7 @@ function viewWhatIf() {
 
 /* ---------- Review and export ---------- */
 function returnText(D) {
+  if (S.type === 'business') return returnTextBiz(D);
   const c = D.c, p = S.p, w = D.w;
   return [`INCOME TAX RETURN SUMMARY (prototype), tax year ${c.ty}`, 'Taxpayer: Zara Khan (sample)', '',
     `Salary: ${rs(p.salary)}`, `Rent: ${rs(p.rent)}`, `Business: ${rs(c.biz)}`, `Total income: ${rs(c.total)}`, `Zakat: ${rs(c.zakat)}`, `Taxable income: ${rs(c.taxable)}`,
@@ -1013,6 +1180,7 @@ function returnText(D) {
     '', 'Prepared by an AI assistant. Submission is done by the taxpayer in IRIS.'].join('\n');
 }
 function viewReview(D) {
+  if (S.type === 'business') return viewBizReview(D);
   const c = D.c, p = S.p, w = D.w, fails = D.checks.filter(x => x.status === 'fail').length;
   const ready = D.rd.score >= 80 && !fails;
   const mine = S.esc.filter(e => e.mine);
@@ -1055,6 +1223,7 @@ function viewGlossary() {
 /*END UI3*/
 /*UI3B: auto-filling return form*/
 function formFields(D) {
+  if (S.type === 'business') return formFieldsBiz(D);
   const p = S.p, c = D.c, m = S.meta, st = id => S.docState[id].status === 'done';
   const dn = id => DOCS.find(d => d.id === id).name;
   const from = k => (m[k] ? m[k].src : '');
@@ -1130,6 +1299,327 @@ function viewForm(D) {
   <section class="card"><div class="row"><button class="btn primary" disabled>Submit in IRIS</button><span class="note">Submission happens in the real IRIS portal and is outside this prototype. The platform hands over the figures above.</span></div></section>`;
 }
 /*END UI3B*/
+/*UI5: business owner mode*/
+const NAV_B = [['assistant','Assistant'],['documents','Documents'],['return','Business tax computation'],['form','Return form preview'],['checks','Checks'],['readiness','Readiness and timeline'],['whatif','What-if simulator'],['review','Review and export'],['glossary','FBR language guide']];
+const BFIELDS = [['sales','Sales (excl. sales tax)'],['outputTax','Sales tax charged'],['openStock','Opening stock'],['purchases','Purchases'],['closeStock','Closing stock'],['inputTax','Input sales tax'],['salaries','Staff salaries'],['rent','Shop rent'],['utilities','Utilities'],['otherExp','Other expenses'],['cashOver200','Cash payments over Rs 200,000'],['wdvMach','Machinery (written-down value)'],['wdvComp','Computers'],['wdvFurn','Furniture'],['whtSupplies','Tax deducted by customers'],['advance','Advance tax paid']];
+GLOSS.push(
+  ['Turnover','Turnover','Your total sales for the year before sales tax. Minimum tax is calculated on it.','Sales of Rs 24,000,000 in the sample business.'],
+  ['COGS','Cost of goods sold','Opening stock plus purchases, less closing stock. It is what the goods you sold cost you.','Shown in the business computation.'],
+  ['Minimum tax','Minimum tax','A tax of 1.25% of turnover. You pay the higher of normal tax and minimum tax. Any excess over normal tax can be carried forward for two years. For individuals and AOPs it applies from Rs 100 million of turnover, as reported.','Shown beside normal tax.'],
+  ['Output tax','Output sales tax','Sales tax you charge customers, 18% for most goods.','Rs 4,320,000 in the sample.'],
+  ['Input tax','Input sales tax','Sales tax you pay on purchases. You subtract it from output tax and pay the difference.','Rs 2,844,000 in the sample.'],
+  ['AOP','Association of Persons','A partnership or similar group. It is taxed on the same slabs as a non-salaried individual.','Choose it in the business type list.'],
+  ['STRN','Sales Tax Registration Number','The number that shows a business is registered for sales tax.','Appears on the return form preview.'],
+  ['Depreciation','Depreciation','The yearly cost of machines, computers and furniture you use in the business, claimed at fixed rates on their remaining value.','Machinery 15%, computers 30%, furniture 15%.'],
+  ['Disallowed expense','Disallowed expenditure','An expense the tax law will not accept, so it is added back to profit. Large payments made in cash are one example.','Added back under adjustments.'],
+  ['Adjustable tax','Tax deducted by customers','Tax your customers deduct when they pay you. It counts as tax you have already paid.','Rs 340,000 in the sample.']
+);
+KB.push(
+  { k: ['minimum','turnover','113'], a: 'Minimum tax is 1.25% of turnover for most businesses. The taxpayer pays the higher of normal tax and minimum tax. Excess minimum tax can be carried forward for two years from tax year 2026. For individuals and AOPs the regime is reported to apply from Rs 100 million of turnover. Confirm the sector rate, as some sectors pay less.', ref: 'Income Tax Ordinance 2001, section 113; verify the current rate and threshold' },
+  { k: ['depreciation','asset','machinery','computer','allowance'], a: 'Depreciation is claimed on reducing balance: buildings 10%, furniture 15%, machinery and vehicles 15%, computer hardware 30%. New plant and machinery earns a 25% initial allowance in the first year. Assets bought outside banking channels above set limits do not qualify.', ref: 'Income Tax Ordinance 2001, section 22 and Third Schedule' },
+  { k: ['cash','200,000','disallow','banking'], a: 'Payments above Rs 200,000 made outside banking channels lose part of their deduction. Recent summaries put the disallowance at 50% of the related expenditure. Older guidance cited 20%. Check the current text before advising.', ref: 'Income Tax Ordinance 2001, section 21' },
+  { k: ['sales tax','input','output','18%','strn'], a: 'A registered business charges output sales tax, usually 18%, and deducts the input tax it paid on purchases. It pays the difference with its monthly return. Reconcile sales in the sales tax returns with sales in the income tax return.', ref: 'Sales Tax Act 1990' },
+  { k: ['company','corporate','29%','aop','partnership'], a: 'A company pays a flat corporate rate, 29% in this prototype, plus super tax at high incomes (not modelled). An AOP is taxed on the non-salaried individual slabs, and a partner\'s share of AOP income is then treated separately.', ref: 'Income Tax Ordinance 2001, First Schedule, Part I; verify for tax year 2027' },
+  { k: ['loss','carry','forward','losses'], a: 'Business losses can generally be set off against profits of the next six years. Unabsorbed depreciation carries forward without limit, with a cap on offset when profits are large.', ref: 'Income Tax Ordinance 2001, sections 56 and 57' }
+);
+
+/* ---------- bank decisions ---------- */
+function setTxnCatBiz(id, cat) {
+  const r = S.bank.find(x => x.id === id); if (!r) return;
+  r.cat = cat; r.conf = 1; r.confirmed = true;
+  const sum = c => S.bank.filter(x => x.cat === c).reduce((a, x) => a + x.credit, 0);
+  S.p.unrecGross = sum('unrecorded'); S.p.loans = sum('loan'); S.p.capital = sum('capital');
+  applyDoc(S, DOCS[1]);
+}
+
+/* ---------- chat ---------- */
+function respondBiz(text) {
+  const t = text.toLowerCase(), a = amounts(t)[0], before = computeBiz(S.p);
+  const monthly = /month|monthly|per month|pm\b|mahina/.test(t), annual = /annual|yearly|per year|a year|saal/.test(t);
+  const per = v => (monthly && !annual ? v * 12 : v);
+  const unclear = S.bank.find(r => r.cat === 'unclear' && !r.confirmed);
+  const set = (k, v) => { S.p[k] = v; S.meta[k] = { conf: 0.82, src: 'Your message' }; };
+  const done = (msg, changes) => { const af = computeBiz(S.p); botSay(`${msg} Tax chargeable ${before.chargeable === af.chargeable ? 'stays at ' + rs(af.chargeable) : rs(before.chargeable) + ' to ' + rs(af.chargeable)}.`, { conf: 0.82, changes }); };
+  const nav = t.match(/(?:open|go to|show|take me to|switch to)\s+(?:my\s+|the\s+)?(documents?|return form|form|return|tax|checks?|validation|readiness|timeline|what.?if|simulator|review|export|glossary|guide)/);
+  if (nav) {
+    const w = nav[1], map = [[/form/, 'form'], [/doc/, 'documents'], [/return|tax/, 'return'], [/check|valid/, 'checks'], [/ready|timeline/, 'readiness'], [/what|sim/, 'whatif'], [/review|export/, 'review'], [/gloss|guide/, 'glossary']];
+    const v = map.find(x => x[0].test(w))[1]; botSay('Opening ' + NAV_B.find(x => x[0] === v)[1] + '.'); S.view = v; return;
+  }
+  if (/human|professional|accountant|advis[eo]r|expert|lawyer|talk to someone/.test(t)) { escalate('Business owner asked for human help: ' + text.slice(0, 80)); botSay('I sent your question to a tax professional with your figures and the open checks attached. You will see their reply under Review and export.', { conf: 1 }); return; }
+  if (unclear && /it was|that was|this was|unrecorded/.test(t)) {
+    const kind = /capital|invest|my own|owner/.test(t) ? 'capital' : /loan|borrow/.test(t) ? 'loan' : /sale|cash|unrecorded/.test(t) ? 'unrecorded' : null;
+    if (kind) {
+      setTxnCatBiz(unclear.id, kind);
+      const lab = { capital: 'owner capital', loan: 'a loan', unrecorded: 'unrecorded sales' }[kind];
+      done(`Recorded ${rs(unclear.credit)} as ${lab}. ${kind === 'unrecorded' ? 'It is added to turnover and sales tax.' : 'It is not income, so turnover is unchanged.'}`, [lab + ' ' + rs(unclear.credit)]); return;
+    }
+  }
+  if (/(bought|purchased|new)\b/.test(t) && /(machine|equipment|computer|laptop|\bpos\b|furniture|shelf|shelves|rack|plant)/.test(t) && a) {
+    const k = /comput|laptop|\bpos\b/.test(t) ? 'wdvComp' : /furnit|shelf|shelves|rack/.test(t) ? 'wdvFurn' : 'wdvMach';
+    set(k, S.p[k] + a); done(`Added ${rs(a)} to ${k === 'wdvComp' ? 'computers' : k === 'wdvFurn' ? 'furniture' : 'machinery'}. Depreciation is now ${rs(computeBiz(S.p).dep)}. The first-year initial allowance is not modelled.`, ['Asset +' + rs(a)]); return;
+  }
+  if (/closing stock/.test(t) && a) { set('closeStock', a); done(`Closing stock set to ${rs(a)}.`, ['Closing stock ' + rs(a)]); return; }
+  if (/opening stock/.test(t) && a) { set('openStock', a); done(`Opening stock set to ${rs(a)}.`, ['Opening stock ' + rs(a)]); return; }
+  if (/advance tax/.test(t) && a) { set('advance', a); done(`Advance tax paid set to ${rs(a)}.`, ['Advance tax ' + rs(a)]); return; }
+  if (/input (sales )?tax/.test(t) && a) { set('inputTax', per(a)); done(`Input sales tax set to ${rs(per(a))}.`, ['Input tax ' + rs(per(a))]); return; }
+  if (/(tax deducted|withheld|deducted).*(customer|supply|supplies)|customers? deduct/.test(t) && a) { set('whtSupplies', a); done(`Tax deducted by customers set to ${rs(a)}.`, ['Customer tax ' + rs(a)]); return; }
+  if (/cash payment/.test(t) && a) { set('cashOver200', a); done(`Cash payments over Rs 200,000 set to ${rs(a)}. ${pc(BR.cashDis)} of it is added back to taxable income.`, ['Cash payments ' + rs(a)]); return; }
+  if (/(sales|turnover|revenue)/.test(t) && !/sales tax|stax/.test(t) && a && !/\b(why|explain|what)\b/.test(t)) {
+    const v = per(a); set('sales', v); set('outputTax', Math.round(v * BR.stax)); done(`Annual sales set to ${rs(v)} and sales tax charged to ${rs(Math.round(v * BR.stax))} at 18%. Upload the sales register to confirm.`, ['Sales ' + rs(v)]); return;
+  }
+  if (/purchas/.test(t) && a) { const v = per(a); set('purchases', v); done(`Purchases set to ${rs(v)}.`, ['Purchases ' + rs(v)]); return; }
+  if (/rent/.test(t) && a) { const v = per(a); set('rent', v); done(`Shop rent set to ${rs(v)} a year.`, ['Rent ' + rs(v)]); return; }
+  if (/(salar|wage|staff|payroll)/.test(t) && a) { const v = per(a); set('salaries', v); done(`Staff salaries set to ${rs(v)} a year.`, ['Salaries ' + rs(v)]); return; }
+  if (/(utilit|electric|bills?)/.test(t) && a) { const v = per(a); set('utilities', v); done(`Utilities set to ${rs(v)} a year.`, ['Utilities ' + rs(v)]); return; }
+  if (/(other|misc).*(expens|cost)/.test(t) && a) { const v = per(a); set('otherExp', v); done(`Other operating expenses set to ${rs(v)} a year.`, ['Other expenses ' + rs(v)]); return; }
+  const wb2 = n => new RegExp('\\b' + n.toLowerCase().replace(/[^a-z0-9 ]/g, '') + '\\b').test(t.replace(/[^a-z0-9 ]/g, ''));
+  const g = /what is|what's|what does|meaning|define|explain|kya hai/.test(t) && GLOSS.find(x => wb2(x[0]) || wb2(x[1]));
+  if (g) { botSay(`<b>${esc(g[1])}.</b> ${esc(g[2])} <span class="note">${esc(g[3])}</span>`, { conf: 0.95 }); return; }
+  if (/(why|explain)/.test(t) && /minimum/.test(t)) { botSay(`Minimum tax is ${rs(before.minTax)} and normal tax is ${rs(before.normal)}. <button class="btn sm" data-act="explain" data-v="b_min">Explain step by step</button>`, { conf: 0.9 }); return; }
+  if (/(why|explain)/.test(t) && /(tax|rate|slab|company|high)/.test(t)) { botSay(`Taxable income is ${rs(before.taxable)} and tax is ${rs(before.normal)} at the ${before.company ? 'company rate' : 'non-salaried slabs'}. <button class="btn sm" data-act="explain" data-v="b_basis">Explain step by step</button>`, { conf: 0.9 }); return; }
+  if (/what.?if|simulat|scenario|reduce my tax|save tax/.test(t)) { botSay('Opening the what-if simulator. Change turnover, cost of goods and cash payments, and compare the entity types.'); S.view = 'whatif'; return; }
+  if (/score|ready|readiness/.test(t)) { const D = derive(); botSay(`Your readiness score is ${D.rd.score} out of 100. Biggest gap: ${D.rd.parts.slice().sort((x, y) => (y.max - y.v) - (x.max - x.v))[0].tip} <button class="btn sm" data-act="go" data-v="readiness">Open readiness</button>`, { conf: 0.9 }); return; }
+  if (/deadline|due date|when.*(file|due)|last date/.test(t)) { botSay(dueInfo().msg, { conf: 0.8 }); return; }
+  if (/bank|reconcil|difference|receipts/.test(t)) { const rc = bizRecon(S); botSay(`The bank shows ${rs(rc.banked)} from customers. Sales plus sales tax are ${rs(rc.expected)}. Difference ${rs(rc.gap)}, ${rc.ok ? 'within' : 'outside'} tolerance. <button class="btn sm" data-act="explain" data-v="b_recon">Explain</button>`, { conf: 0.88 }); return; }
+  if (/how much|tax|owe|payable|refund|liability|pay/.test(t)) { botSay(`Tax chargeable is ${rs(before.chargeable)} (normal ${rs(before.normal)}, minimum ${before.minApplies ? rs(before.minTax) : 'not applicable'}). After ${rs(before.paid)} already paid, ${before.balance >= 0 ? 'you owe ' + rs(before.balance) : 'a refund of ' + rs(-before.balance) + ' is due'}. Net sales tax ${before.netStax >= 0 ? 'payable' : 'refundable'}: ${rs(Math.abs(before.netStax))}. <button class="btn sm" data-act="explain" data-v="b_basis">Explain</button>`, { conf: 0.88 }); return; }
+  if (/^(hi|hello|hey|salam|assalam|aoa)/.test(t)) { botSay('Hello. Tell me about your business in plain words, for example "my monthly sales are 2 million", or open a screen from the list on the left.'); return; }
+  botSay('I can record sales, purchases, stock, expenses, cash payments and new assets from plain sentences, decide what a bank transfer was, explain minimum tax and any figure, and pass a question to a tax professional. Try one of the suggestions below.', { conf: 0.6 });
+}
+function bizChips() {
+  const c = [];
+  if (S.bank.some(r => r.cat === 'unclear' && !r.confirmed)) c.push('It was owner capital', 'It was a loan from a friend', 'It was unrecorded cash sales');
+  c.push('Why is my tax this high?', 'What is minimum tax?', 'I bought a machine for 800k', 'Open the return form', 'How much tax do I owe?', 'I want to talk to a tax professional');
+  return c;
+}
+function startChat() {
+  S.chat = [];
+  if (S.type === 'business') {
+    const pend = DOCS.filter(d => S.docState[d.id].status !== 'done').map(d => d.name);
+    botSay(`Hello. I have read ${DOCS.length - pend.length} of ${DOCS.length} documents for ${esc(S.p.name)} (${ENTITY[S.p.entity]}) for tax year 2026. Still waiting: ${pend.map(esc).join(' and ')}. Open Documents to run them, or tell me about your business.`, { conf: 0.95 });
+    const u = S.bank.find(r => r.cat === 'unclear' && !r.confirmed);
+    if (u) botSay(`One more thing. On ${fmtDate(u.date)} ${rs(u.credit)} arrived from "A RAZA". I cannot tell whether it was owner capital, a loan or unrecorded sales, and the answer changes your turnover and tax. Which was it?`, { conf: u.conf });
+  } else {
+    botSay('Hello Zara. I have read 4 of your 6 documents for tax year 2026 and filled in your return. Two are still waiting: the freelance earnings sheet and the donation receipt. Open Documents to run them, or just tell me about your finances.', { conf: 0.95 });
+    const u0 = S.bank.find(r => r.cat === 'unclear');
+    botSay(`One more thing. On ${fmtDate(u0.date)} ${rs(u0.credit)} arrived from "M KHAN". I cannot tell whether it was a gift, a loan or income, and the answer changes your Wealth Statement. Which was it?`, { conf: u0.conf });
+  }
+}
+function switchType(t, ent) {
+  const keep = { role: S.role, a11y: S.a11y, autoRead: S.autoRead, esc: S.esc };
+  S = makeState(t, ent || 'sole'); Object.assign(S, keep); S.view = 'assistant';
+  if (S.role === 'pro') S.view = 'clients';
+  startChat(); render(); toast(t === 'business' ? 'Switched to business owner: ' + S.p.name : 'Switched to individual: Zara Khan'); window.scrollTo(0, 0);
+}
+
+/* ---------- explanations ---------- */
+function explainBiz(key) {
+  const D = derive(), c = D.c, p = S.p; let title = '', steps = [], refs = [], conf = 0.9;
+  if (key === 'b_basis') {
+    title = 'Why this tax applies';
+    steps = [['Business type', ENTITY[p.entity]],
+      ['Accounting profit', `Sales ${rs(c.sales)} - cost of sales ${rs(c.cogs)} - expenses ${rs(c.opex)} - depreciation ${rs(c.dep)} = ${rs(c.profit)}`],
+      ['Add back disallowed expenditure', `${rs(c.profit)} + ${rs(c.cashAdd)} = taxable income ${rs(c.taxable)}`],
+      c.company ? ['Company rate', `${pc(BR.company)} x ${rs(c.taxable)} = ${rs(c.normal)}`] : ['Slab for taxable income', `${slabText(SLABS[c.ty].non, c.slab.idx)}. Tax = ${rs(c.normal)}`],
+      ['Which table', 'Sole proprietors and partnerships (AOP) use the non-salaried individual slabs. A company pays a flat corporate rate.']];
+    refs = ['Income Tax Ordinance 2001, First Schedule, Part I'];
+  } else if (key === 'b_min') {
+    title = 'How minimum tax works';
+    steps = [['Turnover', rs(c.sales)], ['Rate', pc(BR.minTax, 2) + ' of turnover'],
+      ['Does it apply to you?', c.company ? 'Yes. A company pays minimum tax at any turnover.' : c.minApplies ? 'Yes. Turnover is at or above Rs 100,000,000.' : 'Not at this turnover. For individuals and AOPs the regime is reported to apply from Rs 100,000,000.'],
+      ['Minimum tax', c.minApplies ? `${pc(BR.minTax, 2)} x ${rs(c.sales)} = ${rs(c.minTax)}` : 'Rs 0'],
+      ['Compare', `Normal tax ${rs(c.normal)} against minimum tax ${rs(c.minTax)}. You pay the higher: ${rs(c.chargeable)}.`],
+      ['Carry forward', c.minBites ? `Minimum tax is higher, so ${rs(c.carry)} can be set against normal tax in the next ${BR.carryYears} years.` : 'Normal tax is higher, so nothing is carried forward.']];
+    refs = ['Income Tax Ordinance 2001, section 113', 'Rate, sector rates and the Rs 100 million threshold are as reported for 2026-27. Verify them.'];
+  } else if (key === 'b_cogs') {
+    title = 'How cost of sales is calculated';
+    steps = [['Opening stock', rs(p.openStock)], ['Add purchases', rs(p.purchases)], ['Less closing stock', rs(-p.closeStock)], ['Cost of sales', `${rs(p.openStock)} + ${rs(p.purchases)} - ${rs(p.closeStock)} = ${rs(c.cogs)}`], ['Gross profit', `${rs(c.sales)} - ${rs(c.cogs)} = ${rs(c.gp)} (${pc(c.margin, 1)} of sales)`]];
+  } else if (key === 'b_dep') {
+    title = 'How depreciation is calculated';
+    steps = [['Machinery and fittings', `${rs(p.wdvMach)} x 15% = ${rs(p.wdvMach * BR.mach)}`], ['Computers and POS', `${rs(p.wdvComp)} x 30% = ${rs(p.wdvComp * BR.comp)}`], ['Furniture', `${rs(p.wdvFurn)} x 15% = ${rs(p.wdvFurn * BR.furn)}`], ['Total depreciation', rs(c.dep)],
+      ['Simplification', 'Rates apply to the written-down value (reducing balance). The 25% first-year initial allowance on newly bought plant is not modelled.']];
+    refs = ['Income Tax Ordinance 2001, section 22 and Third Schedule'];
+  } else if (key === 'b_cash') {
+    title = 'Why cash payments are added back';
+    conf = S.meta.cashOver200 ? S.meta.cashOver200.conf : 0.7;
+    steps = [['Cash payments over Rs 200,000 each', `${rs(p.cashOver200)} (confidence ${Math.round(conf * 100)}%)`], ['Disallowed share', `${pc(BR.cashDis)} x ${rs(p.cashOver200)} = ${rs(c.cashAdd)}`], ['Effect', `${rs(c.cashAdd)} is added to profit, so taxable income is ${rs(c.taxable)}.`],
+      ['Rate to verify', 'Recent summaries of the law give 50%. Older guidance gave 20%. This prototype uses 50%. Confirm the current rate before filing.']];
+    refs = ['Income Tax Ordinance 2001, section 21'];
+  } else if (key === 'b_stax') {
+    title = 'How net sales tax is calculated';
+    steps = [['Output tax on sales', `${rs(c.outTax)} (18% of sales ${rs(c.sales)})`], ['Less input tax on purchases', rs(p.inputTax)], [c.netStax >= 0 ? 'Net sales tax payable' : 'Sales tax refundable', `${rs(c.outTax)} - ${rs(p.inputTax)} = ${rs(c.netStax)}`], ['Separate from income tax', 'Sales tax is filed monthly with its own return. The income tax return only needs sales to agree.']];
+    refs = ['Sales Tax Act 1990'];
+  } else if (key === 'b_payable') {
+    title = 'How the balance is worked out';
+    steps = [['Tax chargeable', rs(c.chargeable)], ['Tax already paid', `Customers ${rs(p.whtSupplies)} + advance ${rs(p.advance)} = ${rs(c.paid)}`], [c.balance > 0 ? 'Balance to pay' : 'Refund claimable', `${rs(c.chargeable)} - ${rs(c.paid)} = ${rs(c.balance)}`]];
+    refs = ['Income Tax Ordinance 2001, section 114'];
+  } else if (key === 'b_recon') {
+    const rc = bizRecon(S), bt = bankTotals(S.bank, 'business');
+    title = 'Why bank receipts are compared with sales';
+    steps = [['Customer receipts in the bank', rs(bt.sales.credit)], ['Transfers you called unrecorded sales', rs(bt.unrecorded.credit)], ['Sales plus sales tax', `${rs(c.sales)} + ${rs(c.outTax)} = ${rs(rc.expected)}`], ['Difference', `${rs(rc.banked)} - ${rs(rc.expected)} = ${rs(rc.gap)}`], ['Why it matters', 'Money in the bank that is not explained as sales, capital or a loan can be treated as hidden sales in an audit.']];
+  }
+  const html = `<ol>${steps.map(s => `<li><b>${s[0]}</b><div class="calc">${esc(s[1])}</div></li>`).join('')}</ol>` + (refs.length ? `<div class="note"><b>Basis:</b> ${refs.map(esc).join('; ')}. References are for orientation. Verify against current law before filing.</div>` : '');
+  return { title, html, conf, key };
+}
+
+/* ---------- views ---------- */
+function viewBizReturn(D) {
+  const c = D.c, p = S.p;
+  const r = (l, v, why, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${l}</td><td class="num">${v}</td><td>${why ? whyBtn(why) : ''}</td></tr>`;
+  const tbl = c.company ? '' : SLABS[c.ty].non.map((s, i) => `<tr${i === c.slab.idx ? ' style="background:var(--accent-soft);font-weight:600"' : ''}><td class="num">${rs(s[0])}</td><td class="num">${SLABS[c.ty].non[i + 1] ? rs(SLABS[c.ty].non[i + 1][0]) : 'and above'}</td><td class="num">${rs(s[1])}</td><td class="num">${pc(s[2])}</td></tr>`).join('');
+  return `${vhead('Business tax computation', 'Sales, cost of goods, expenses and depreciation become profit. Tax law adjustments give taxable income, which is taxed on the entity\'s rate and checked against minimum tax and sales tax.')}
+  <div class="row"><span class="pill info">${ENTITY[p.entity]}</span><span class="pill gold">${c.company ? 'Company rate 29%' : 'Non-salaried slabs'}</span><span class="note">Change the business type in the bar above.</span></div>
+  ${p.ty === 2027 ? '<div class="callout">Tax year 2027 view: figures are re-run on tax year 2027 slabs as a projection. Non-salaried slabs are treated as unchanged.</div>' : ''}
+  <div class="grid2">
+    <section class="card"><h2>Profit and tax adjustments</h2><div class="tw"><table><tbody>
+      ${r('Sales (excl. sales tax)', rs(p.sales))}${c.extra ? r('Add unrecorded sales', rs(c.extra)) : ''}
+      ${r('Total turnover', rs(c.sales), '', 'total')}
+      ${r('Opening stock', rs(p.openStock))}${r('Add purchases', rs(p.purchases))}${r('Less closing stock', rs(-p.closeStock))}
+      ${r('Cost of sales', rs(-c.cogs), 'b_cogs', 'total')}
+      ${r('Gross profit (' + pc(c.margin, 1) + ')', rs(c.gp), '', 'total')}
+      ${r('Staff salaries', rs(-p.salaries))}${r('Shop rent', rs(-p.rent))}${r('Utilities', rs(-p.utilities))}${r('Other operating expenses', rs(-p.otherExp))}
+      ${r('Depreciation', rs(-c.dep), 'b_dep')}
+      ${r('Accounting profit', rs(c.profit), '', 'total')}
+      ${r('Add back disallowed cash expenditure', rs(c.cashAdd), 'b_cash')}
+      ${r('Taxable income', rs(c.taxable), '', 'total')}</tbody></table></div></section>
+    <section class="card"><h2>Tax for tax year ${c.ty}</h2><div class="tw"><table><tbody>
+      ${r(c.company ? 'Normal tax at 29%' : 'Normal tax: ' + esc(slabText(SLABS[c.ty].non, c.slab.idx)), rs(c.normal), 'b_basis')}
+      ${r(c.minApplies ? 'Minimum tax at 1.25% of turnover' : 'Minimum tax (not applicable below Rs 100,000,000 turnover)', rs(c.minTax), 'b_min')}
+      ${r('Tax chargeable (higher of the two)', rs(c.chargeable), '', 'total')}
+      ${r('Less tax deducted by customers', rs(-p.whtSupplies))}${r('Less advance tax paid', rs(-p.advance))}
+      ${r(c.balance >= 0 ? 'Balance payable' : 'Refund claimable', rs(Math.abs(c.balance)), 'b_payable', 'total')}
+      ${c.carry ? r('Minimum tax carried forward (' + BR.carryYears + ' years)', rs(c.carry), 'b_min') : ''}</tbody></table></div>
+      ${c.company ? '<p class="note">Super tax on high company incomes is not modelled.</p>' : `<details><summary>Show the non-salaried slab table for tax year ${c.ty}</summary><div class="tw"><table><thead><tr><th class="r">From</th><th class="r">To</th><th class="r">Fixed tax</th><th class="r">Rate on excess</th></tr></thead><tbody>${tbl}</tbody></table></div></details>`}
+    </section>
+  </div>
+  <section class="card"><h2>Sales tax summary</h2><div class="grid3">
+    <div class="kpi"><small>Output tax charged</small><b>${rs(c.outTax)}</b></div><div class="kpi"><small>Input tax on purchases</small><b>${rs(p.inputTax)}</b></div>
+    <div class="kpi"><small>${c.netStax >= 0 ? 'Net payable' : 'Refundable'}</small><b>${rs(Math.abs(c.netStax))}</b></div></div>${whyBtn('b_stax')}
+    <p class="note">Rates and rules follow reports on the Finance Act 2026 and the Ordinance. Verify them on the FBR site before filing.</p></section>`;
+}
+function formFieldsBiz(D) {
+  const p = S.p, c = D.c, m = S.meta, st = id => S.docState[id].status === 'done', dn = id => DOCS.find(d => d.id === id).name;
+  const P = (id, l, k, need, o) => ({ id, l, v: m[k] ? rs(p[k]) : null, src: m[k] ? m[k].src : '', conf: m[k] ? m[k].conf : 0.9, wait: need ? dn(need) : 'your message to the assistant', ...(o || {}) });
+  const C = (id, l, v, ok, wait) => ({ id, l, v: ok === false ? null : v, src: 'Computed by the tax engine', conf: 0.9, wait: wait || '' });
+  const S0 = (id, l, v) => ({ id, l, v, src: 'Profile (sample data)', conf: 1, wait: '' });
+  const stock = !!(m.openStock && m.purchases && m.closeStock);
+  return [
+    { t: 'A', h: 'Business details', f: [S0('bn', 'Business name', p.name), S0('be', 'Type of taxpayer', ENTITY[p.entity]), S0('ntn', 'NTN', '0000000-0'), S0('strn', 'Sales tax registration (STRN)', '00-00-0000-000-00'), S0('act', 'Main activity', 'Retail trading'), { id: 'ty', l: 'Tax year', v: String(p.ty), src: 'Your selection', conf: 1, wait: '' }] },
+    { t: 'B', h: 'Turnover', f: [P('sal', 'Sales (excl. sales tax)', 'sales', 'd1'), P('osx', 'Sales tax charged', 'outputTax', 'd1'), C('xs', 'Unrecorded sales added', rs(c.extra), true)] },
+    { t: 'C', h: 'Cost of sales', f: [P('ost', 'Opening stock', 'openStock', 'd3'), P('pur', 'Purchases', 'purchases', 'd3'), P('cst', 'Closing stock', 'closeStock', 'd3'), C('cogs', 'Cost of sales', rs(c.cogs), stock, dn('d3')), C('gp', 'Gross profit', rs(c.gp), stock && !!m.sales, dn('d3'))] },
+    { t: 'D', h: 'Operating expenses', f: [P('sl', 'Staff salaries', 'salaries', 'd4'), P('rn', 'Shop rent', 'rent', 'd4'), P('ut', 'Utilities', 'utilities', 'd4'), P('ot', 'Other operating expenses', 'otherExp', 'd4'), C('dep', 'Depreciation', rs(c.dep), !!m.wdvMach, dn('d5'))] },
+    { t: 'E', h: 'Adjustments', f: [P('cash', 'Cash payments over Rs 200,000', 'cashOver200', 'd4'), C('cadd', 'Disallowed expenditure added back', rs(c.cashAdd), !!m.cashOver200, dn('d4'))] },
+    { t: 'F', h: 'Tax computation', f: [C('prof', 'Accounting profit', rs(c.profit), true), C('txi', 'Taxable income', rs(c.taxable), true), C('basis', 'Rate applied', c.company ? 'Company rate 29%' : 'Non-salaried slabs', true), C('ntx', 'Normal tax', rs(c.normal), true), C('mtx', 'Minimum tax', c.minApplies ? rs(c.minTax) : 'Not applicable', true), C('chg', 'Tax chargeable', rs(c.chargeable), true), C('cf', 'Minimum tax carried forward', rs(c.carry), true)] },
+    { t: 'G', h: 'Tax paid', f: [P('wht', 'Tax deducted by customers', 'whtSupplies', 'd6'), P('adv', 'Advance tax paid', 'advance', null, { wait: 'your entry' }), C('paid', 'Total tax paid', rs(c.paid), true), C('bal', c.balance >= 0 ? 'Balance payable' : 'Refund claimable', rs(Math.abs(c.balance)), true)] },
+    { t: 'H', h: 'Sales tax summary', f: [C('otx', 'Output tax', rs(c.outTax), true), P('itx', 'Input tax', 'inputTax', 'd3'), C('ntax', c.netStax >= 0 ? 'Net sales tax payable' : 'Sales tax refundable', rs(Math.abs(c.netStax)), !!m.inputTax, dn('d3'))] }
+  ];
+}
+function returnTextBiz(D) {
+  const c = D.c, p = S.p;
+  return [`BUSINESS INCOME TAX RETURN SUMMARY (prototype), tax year ${c.ty}`, `${p.name} (${ENTITY[p.entity]})`, '',
+    `Turnover: ${rs(c.sales)}`, `Cost of sales: ${rs(c.cogs)}`, `Gross profit: ${rs(c.gp)}`, `Operating expenses: ${rs(c.opex)}`, `Depreciation: ${rs(c.dep)}`, `Disallowed expenditure added back: ${rs(c.cashAdd)}`, `Taxable income: ${rs(c.taxable)}`,
+    `Normal tax: ${rs(c.normal)}`, `Minimum tax: ${c.minApplies ? rs(c.minTax) : 'not applicable'}`, `Tax chargeable: ${rs(c.chargeable)}`, `Tax paid: ${rs(c.paid)}`, `${c.balance >= 0 ? 'Balance payable' : 'Refund'}: ${rs(Math.abs(c.balance))}`,
+    `Net sales tax ${c.netStax >= 0 ? 'payable' : 'refundable'}: ${rs(Math.abs(c.netStax))}`, '', 'Prepared by an AI assistant. Submission is done by the taxpayer in IRIS.'].join('\n');
+}
+function viewBizReview(D) {
+  const c = D.c, p = S.p, fails = D.checks.filter(x => x.status === 'fail').length, ready = D.rd.score >= 80 && !fails, mine = S.esc.filter(e => e.mine);
+  const step = S.signoff.reviewed ? 3 : ready ? 2 : 1;
+  const src = k => (S.meta[k] ? `${esc(S.meta[k].src)} ${confBadge(S.meta[k].conf)}` : '<span class="muted">not provided</span>');
+  return `${vhead('Review, export and reporting', 'The prepared business return as the owner will see it before submission. Review every figure, confirm, then copy the data for IRIS.')}
+  <div class="stepper" aria-label="Progress"><span class="on">1 Draft</span><span class="${step >= 2 ? 'on' : ''}">2 Ready for review</span><span class="${step >= 3 ? 'on' : ''}">3 Owner confirmed</span></div>
+  ${ready ? '' : `<div class="callout bad">Not ready yet: readiness is ${D.rd.score}/100${fails ? ' and ' + fails + ' check' + (fails > 1 ? 's' : '') + ' failed' : ''}. Fix the items under Checks, or ask a tax professional.</div>`}
+  <div class="grid2"><section class="card"><h2>${esc(p.name)}: income tax return, tax year ${c.ty}</h2><div class="tw"><table><thead><tr><th>Item</th><th class="r">Amount</th><th>Source</th></tr></thead><tbody>
+    <tr><td>Turnover</td><td class="num">${rs(c.sales)}</td><td class="small">${src('sales')}</td></tr>
+    <tr><td>Cost of sales</td><td class="num">${rs(c.cogs)}</td><td class="small">${src('purchases')}</td></tr>
+    <tr><td>Operating expenses</td><td class="num">${rs(c.opex)}</td><td class="small">${src('salaries')}</td></tr>
+    <tr><td>Depreciation</td><td class="num">${rs(c.dep)}</td><td class="small">${src('wdvMach')}</td></tr>
+    <tr class="total"><td>Taxable income</td><td class="num">${rs(c.taxable)}</td><td></td></tr>
+    <tr><td>Tax chargeable (${c.minBites ? 'minimum tax' : 'normal tax'})</td><td class="num">${rs(c.chargeable)}</td><td></td></tr>
+    <tr><td>Tax paid</td><td class="num">${rs(c.paid)}</td><td class="small">${src('whtSupplies')}</td></tr>
+    <tr class="total"><td>${c.balance >= 0 ? 'Balance payable' : 'Refund'}</td><td class="num">${rs(Math.abs(c.balance))}</td><td></td></tr>
+    <tr><td>Net sales tax ${c.netStax >= 0 ? 'payable' : 'refundable'}</td><td class="num">${rs(Math.abs(c.netStax))}</td><td class="small">${src('inputTax')}</td></tr></tbody></table></div></section>
+  <section class="card"><h2>Confirm and export</h2>
+    <div class="sign"><button class="btn ${S.signoff.reviewed ? 'primary' : ''}" data-act="signoff" aria-pressed="${S.signoff.reviewed}">${S.signoff.reviewed ? 'Confirmed' : 'I have reviewed these figures'}</button><span class="note">Marks the draft as confirmed by you. It does not file anything.</span></div>
+    <div class="row"><button class="btn quiet" data-act="copysum">Copy summary</button><button class="btn quiet" data-act="copyjson">Copy data as JSON</button><button class="btn quiet" data-act="ask" data-v="Please review the full return before I submit">Request professional review</button></div>
+    <p class="note">Downloads are disabled in this preview, so export copies text. A production build would produce a PDF and an IRIS-ready file. Submission is done in IRIS and is not part of this prototype.</p></section></div>
+  <section class="card"><h2>Messages with the tax professional</h2>${mine.length ? mine.map(e => `<div><b>${esc(e.topic)}</b> <span class="pill ${e.status === 'open' ? 'warn' : 'pass'}">${e.status === 'open' ? 'Waiting' : 'Answered'}</span><div class="thread">${e.thread.map(t => `<div><b>${esc(t.who)}</b><br>${esc(t.t)}</div>`).join('')}</div></div>`).join('') : '<p class="note">No questions sent. Use Ask a tax professional on any check, or Request professional review above.</p>'}</section>`;
+}
+function viewClientsBiz(D) {
+  const c = D.c, p = S.p;
+  const rows = [{ name: p.name, type: ENTITY[p.entity], score: D.rd.score, flags: D.checks.filter(x => x.status !== 'pass').length, bal: c.balance >= 0 ? rs(c.balance) + ' payable' : 'Refund ' + rs(-c.balance), note: c.minBites ? 'Minimum tax applies' : 'Turnover ' + rs(c.sales), live: true }].concat(CLIENTS.filter(x => x.name !== p.name));
+  const sel = S.proSel || p.name;
+  const tr = rows.map(r => `<tr><td><b>${r.name}</b>${r.live ? ' <span class="pill info">live</span>' : ''}<br><span class="note">${r.type}</span></td><td><span class="pill ${r.score >= 80 ? 'pass' : r.score >= 55 ? 'warn' : 'fail'}">${r.score}/100</span></td><td class="num">${r.flags}</td><td class="num">${r.bal}</td><td class="small">${esc(r.note)}</td><td><button class="btn sm" data-act="prosel" data-v="${esc(r.name)}" aria-pressed="${sel === r.name}">Open</button></td></tr>`).join('');
+  let detail;
+  if (sel === p.name) {
+    const fl = D.checks.filter(x => x.status !== 'pass');
+    detail = `<section class="card"><h2>${esc(p.name)}: tax professional view</h2><div class="grid2"><div><h3>Audit risk indicators</h3>${fl.length ? fl.map(f => `<div class="find">${ICO[f.status]}<div><b>${esc(f.title)}</b> ${confBadge(f.conf)}<div class="note" style="color:var(--ink)">${esc(f.detail)}</div></div></div>`).join('') : '<p class="note">No open flags.</p>'}</div>
+      <div><h3>Return at a glance</h3><div class="kpi"><small>Turnover</small><b>${rs(c.sales)}</b></div><div class="kpi"><small>Taxable income</small><b>${rs(c.taxable)}</b></div><div class="kpi"><small>Tax chargeable</small><b>${rs(c.chargeable)}</b></div>
+      <div class="row"><button class="btn sm" data-act="draftnote">Draft note to client</button></div><textarea id="noteBox" rows="5" style="width:100%;margin-top:8px" placeholder="The draft appears here"></textarea></div></div></section>`;
+  } else detail = `<section class="card"><p class="note">${esc(sel)} is an example client. Only ${esc(p.name)} carries live figures in this prototype.</p></section>`;
+  return `${vhead('Tax professional workspace: clients', 'One screen for the whole practice. The AI has already read documents, run checks and ranked each client by how ready the return is.')}<section class="card"><div class="tw"><table><thead><tr><th>Client</th><th>Readiness</th><th class="r">Open flags</th><th class="r">Balance</th><th>Main issue</th><th></th></tr></thead><tbody>${tr}</tbody></table></div></section>${detail}`;
+}
+function timelineEventsBiz() {
+  const ev = [], p = S.p, due = p.entity === 'company' ? '12-31' : '09-30';
+  const L = (d, t, x) => ev.push({ d, t, x: x || '', k: 'law' });
+  L('2025-07-01', 'Tax year 2026 begins');
+  ['2025-09-15', '2025-12-15', '2026-03-15', '2026-06-15'].forEach(d => L(d, 'Advance tax instalment date', 'Based on the previous year\'s tax.'));
+  L('2026-06-30', 'Tax year 2026 ends', 'Stock and fixed asset balances are taken on this day.');
+  L('2026-07-01', 'Tax year 2027 begins');
+  L('2026-' + due, 'Usual due date: tax year 2026 return', 'Confirm any FBR extension.');
+  ['2026-09-15', '2026-12-15', '2027-03-15', '2027-06-15'].forEach(d => L(d, 'Advance tax instalment date'));
+  L('2027-06-30', 'Tax year 2027 ends'); L('2027-' + due, 'Usual due date: tax year 2027 return');
+  const stx = S.bank.filter(r => r.cat === 'salestax'); if (stx.length) ev.push({ d: stx[stx.length - 1].date, t: `${stx.length} monthly sales tax payments totalling ${rs(stx.reduce((a, r) => a + r.debit, 0))}`, x: 'Last payment shown.', k: 'you' });
+  S.bank.forEach(r => { if (['unclear', 'capital', 'loan', 'unrecorded'].includes(r.cat)) ev.push({ d: r.date, t: (r.cat === 'unclear' ? 'Unclassified transfer ' : r.cat === 'capital' ? 'Owner capital ' : r.cat === 'loan' ? 'Loan received ' : 'Unrecorded sales ') + rs(r.credit), x: r.cat === 'unclear' ? 'Needs your decision.' : 'Recorded by you.', k: 'you' }); });
+  ev.sort((a, b) => a.d.localeCompare(b.d));
+  const iso = TODAY.toISOString().slice(0, 10), idx = ev.findIndex(e => e.d > iso);
+  ev.splice(idx < 0 ? ev.length : idx, 0, { d: iso, t: 'Today', x: '', k: 'now' });
+  return ev;
+}
+
+/* ---------- what-if (business) ---------- */
+function wbInit() { const c = computeBiz(S.p); S.wb = { sales: c.sales, cogs: c.sales ? Math.round(c.cogs / c.sales * 100) : 70, opex: c.opex, cash: S.p.cashOver200 }; }
+function scenB(q, entity) {
+  const p = Object.assign({}, S.p, { entity, sales: q.sales, outputTax: Math.round(q.sales * BR.stax), unrecGross: 0, openStock: 0, closeStock: 0, purchases: Math.round(q.sales * q.cogs / 100), salaries: q.opex, rent: 0, utilities: 0, otherExp: 0, cashOver200: q.cash });
+  return computeBiz(p);
+}
+function curveB(q) {
+  const W = 640, H = 250, L = 62, R = 16, Tp = 14, B = 34, MAX = 150000000, own = S.p.entity;
+  const xs = []; for (let x = 0; x <= MAX; x += 5000000) xs.push(x);
+  const sc = xs.map(x => scenB(Object.assign({}, q, { sales: x }), own));
+  const yn = sc.map(s => s.normal), ym = sc.map(s => s.minTax);
+  const ymax = Math.max.apply(null, yn.concat(ym)) * 1.1 || 1;
+  const X = v => L + v / MAX * (W - L - R), Y = v => H - B - v / ymax * (H - B - Tp);
+  const path = ys => xs.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(ys[i]).toFixed(1)).join(' ');
+  const grid = [0, .25, .5, .75, 1].map(f => { const v = ymax * f / 1.1; return `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${(v / 1e6).toFixed(1)}M</text>`; }).join('');
+  const xt = [0, 50000000, 100000000, 150000000].map(v => `<text x="${X(v)}" y="${H - 12}" text-anchor="${v === 0 ? 'start' : v === MAX ? 'end' : 'middle'}">${v / 1e6}M</text>`).join('');
+  const cur = scenB(q, own), n = xs.length - 1;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Normal tax and minimum tax against turnover">${grid}${xt}
+    <path d="${path(yn)}" fill="none" stroke="var(--accent)" stroke-width="2.5"/><path d="${path(ym)}" fill="none" stroke="var(--gold)" stroke-width="2.5" stroke-dasharray="6 4"/>
+    <text x="${X(xs[n]) - 4}" y="${Y(yn[n]) - 8}" text-anchor="end" style="fill:var(--accent)">Normal tax</text><text x="${X(xs[n]) - 4}" y="${Y(ym[n]) + 16}" text-anchor="end" style="fill:var(--gold)">Minimum tax</text>
+    <circle cx="${X(Math.min(q.sales, MAX))}" cy="${Y(cur.chargeable)}" r="6" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/>
+    <text x="${W / 2}" y="${H - 1}" text-anchor="middle">Turnover for the year, ${esc(ENTITY[own])}, at your cost and expense ratios</text></svg>`;
+}
+function wbHTML() {
+  const q = S.wb, own = S.p.entity, other = own === 'company' ? 'sole' : 'company';
+  const cols = [['Your return', computeBiz(S.p)], [ENTITY[own] + ' scenario', scenB(q, own)], [ENTITY[other] + ' scenario', scenB(q, other)]];
+  const row = (l, f) => `<tr><td>${l}</td>${cols.map(c => `<td class="num">${f(c[1])}</td>`).join('')}</tr>`;
+  const diff = cols[1][1].chargeable - cols[0][1].chargeable;
+  return `<div class="callout ${diff > 0 ? 'bad' : 'good'}">Scenario tax is <b>${rs(cols[1][1].chargeable)}</b>, ${diff === 0 ? 'the same as' : rs(Math.abs(diff)) + (diff > 0 ? ' more than' : ' less than')} your return. ${cols[1][1].minBites ? 'Minimum tax is the higher amount here.' : ''}</div>
+  <div class="tw"><table><thead><tr><th></th>${cols.map(c => `<th class="r" style="white-space:normal">${esc(c[0])}</th>`).join('')}</tr></thead><tbody>
+    ${row('Turnover', c => rs(c.sales))}${row('Gross profit', c => rs(c.gp))}${row('Taxable income', c => rs(c.taxable))}${row('Normal tax', c => rs(c.normal))}${row('Minimum tax', c => (c.minApplies ? rs(c.minTax) : 'n/a'))}${row('Tax chargeable', c => rs(c.chargeable))}${row('Tax as % of turnover', c => pc(c.eff, 2))}${row('Minimum tax carried forward', c => rs(c.carry))}</tbody></table></div>
+  <h3>Normal tax and minimum tax as turnover grows</h3>${curveB(q)}
+  <p class="note">The scenario replaces stock, expenses and cash payments with the ratios you set. Rent and utilities are included in expenses. Minimum tax for individuals and AOPs starts at Rs 100 million of turnover, as reported, so the lines meet only for larger businesses or companies.</p>`;
+}
+function viewBizWhatIf() {
+  if (!S.wb) wbInit();
+  const q = S.wb;
+  const sl = (k, label, min, max, step, fmt) => `<div class="sl"><label for="wb-${k}"><span>${label}</span><span class="mono" id="wv-${k}">${fmt(q[k])}</span></label><input type="range" id="wb-${k}" min="${min}" max="${max}" step="${step}" value="${q[k]}" data-wb="${k}"></div>`;
+  return `${vhead('What-if tax simulator', 'Change turnover, cost of goods, expenses and cash payments, and compare your business type with the alternative. Nothing here changes your return.')}
+  <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))"><section class="card"><h2>Scenario</h2>
+    ${sl('sales', 'Turnover for the year', 2000000, 150000000, 1000000, rs)}${sl('cogs', 'Cost of goods as % of sales', 40, 98, 1, v => v + '%')}${sl('opex', 'Operating expenses for the year', 0, 20000000, 100000, rs)}${sl('cash', 'Cash payments over Rs 200,000', 0, 3000000, 50000, rs)}
+    <button class="btn quiet" data-act="wireset">Reset to my return</button></section>
+    <section class="card" style="grid-column:span 2;min-width:0" id="wiOut">${wbHTML()}</section></div>`;
+}
+/*END UI5*/
 /*UI4*/
 /* ---------- Professional workspace ---------- */
 const CLIENTS = [
@@ -1153,6 +1643,7 @@ function draftReply(e) {
   return 'I have reviewed the attached figures. Please send supporting documents for the flagged items and I will confirm before you submit.';
 }
 function viewClients(D) {
+  if (S.type === 'business') return viewClientsBiz(D);
   const rows = [{ name: 'Zara Khan', type: 'Salaried with side income', score: D.rd.score, flags: D.checks.filter(x => x.status !== 'pass').length, bal: (D.c.balance >= 0 ? rs(D.c.balance) + ' payable' : 'Refund ' + rs(-D.c.balance)), note: D.c.salaried ? 'Salaried slabs' : 'Salary share ' + pc(D.c.share, 1) + ', non-salaried slabs', live: true }].concat(CLIENTS);
   const sel = S.proSel || 'Zara Khan';
   const tr = rows.map(r => `<tr><td><b>${r.name}</b>${r.live ? ' <span class="pill info">live</span>' : ''}<br><span class="note">${r.type}</span></td><td><span class="pill ${r.score >= 80 ? 'pass' : r.score >= 55 ? 'warn' : 'fail'}">${r.score}/100</span></td><td class="num">${r.flags}</td><td class="num">${r.bal}</td><td class="small">${esc(r.note)}</td><td><button class="btn sm" data-act="prosel" data-v="${esc(r.name)}" aria-pressed="${sel === r.name}">Open</button></td></tr>`).join('');
@@ -1187,7 +1678,7 @@ function viewCopilot() {
 
 /* ---------- shell, render ---------- */
 function shell(D, view) {
-  const nav = S.role === 'taxpayer' ? NAV_T : NAV_P;
+  const nav = S.role === 'taxpayer' ? (S.type === 'business' ? NAV_B : NAV_T) : NAV_P;
   const bd = { documents: DOCS.filter(d => S.docState[d.id].status !== 'done').length, checks: D.checks.filter(x => x.status !== 'pass').length, review: S.esc.filter(e => e.mine && e.status === 'answered').length, queue: S.esc.filter(e => e.status === 'open').length };
   const tog = (k, l, on) => `<button class="tog" data-act="a11y" data-v="${k}" aria-pressed="${on}"><span>${l}</span><span>${on ? 'On' : 'Off'}</span></button>`;
   const c = D.c;
@@ -1196,9 +1687,10 @@ function shell(D, view) {
     ${nav.map(([k, l], i) => `<button class="nav" data-act="nav" data-v="${k}" ${S.view === k ? 'aria-current="page"' : ''} aria-keyshortcuts="Alt+${i + 1}"><span>${l}</span>${bd[k] ? `<span class="badge">${bd[k]}</span>` : ''}</button>`).join('')}
     <div class="sep"></div><div class="a11y" style="display:flex;flex-direction:column;gap:6px">${tog('text', 'Larger text', S.a11y.text === 'lg')}${tog('contrast', 'High contrast', S.a11y.contrast === 'high')}${tog('read', 'Read replies aloud', !!S.autoRead)}</div></nav>
     <div class="main"><header class="top"><div class="seg" role="group" aria-label="Who is using this"><button data-act="role" data-v="taxpayer" aria-pressed="${S.role === 'taxpayer'}">Taxpayer</button><button data-act="role" data-v="pro" aria-pressed="${S.role === 'pro'}">Tax professional</button></div>
+      <div class="seg" role="group" aria-label="Taxpayer type"><button data-act="ttype" data-v="individual" aria-pressed="${S.type === 'individual'}">Individual</button><button data-act="ttype" data-v="business" aria-pressed="${S.type === 'business'}">Business owner</button></div>${S.type === 'business' ? `<label for="entSel" style="position:absolute;left:-9999px">Business type</label><select id="entSel" data-chg="entity">${Object.keys(ENTITY).map(k => `<option value="${k}" ${S.p.entity === k ? 'selected' : ''}>${ENTITY[k]}</option>`).join('')}</select>` : ''}
       <div class="seg" role="group" aria-label="Tax year"><button data-act="ty" data-v="2026" aria-pressed="${S.p.ty === 2026}">Tax year 2026</button><button data-act="ty" data-v="2027" aria-pressed="${S.p.ty === 2027}">Tax year 2027</button></div><div class="grow"></div>
       <div class="metric"><small>${c.balance >= 0 ? 'Payable' : 'Refund'}</small><b>${rs(Math.abs(c.balance))}</b></div>
-      <div class="metric"><small>Slabs</small><b>${c.salaried ? 'Salaried' : 'Non-salaried'}</b></div>
+      <div class="metric"><small>${S.type === 'business' ? 'Tax basis' : 'Slabs'}</small><b>${S.type === 'business' ? (S.p.entity === 'company' ? 'Company 29%' : 'Business slabs') : (c.salaried ? 'Salaried' : 'Non-salaried')}</b></div>
       <div class="metric"><small>Readiness</small><b>${D.rd.score}/100</b></div></header>
       <main class="view" id="view">${view}</main></div></div>${dr}`;
 }
@@ -1236,10 +1728,10 @@ function submitText(t) {
 
 /* ---------- events ---------- */
 function onFile(f) {
-  const clear = () => { S.p.gifts = S.p.gifts.filter(g => g.txn == null); S.p.wealth = S.p.wealth.filter(x => x.txn == null); };
+  const clear = () => { if (S.type === 'business') { S.p.unrecGross = 0; S.p.loans = 0; S.p.capital = 0; } else { S.p.gifts = S.p.gifts.filter(g => g.txn == null); S.p.wealth = S.p.wealth.filter(x => x.txn == null); } };
   if (/\.(csv|txt)$/i.test(f.name)) {
     const rd = new FileReader();
-    rd.onload = () => { const r = importBank(String(rd.result)); if (r.error) S.bankMsg = r.error; else { S.bank = r.bank; clear(); applyDoc(S, DOCS[1]); S.bankMsg = `Loaded ${r.bank.length} transactions from ${f.name}.`; } render(); };
+    rd.onload = () => { const r = importBank(String(rd.result), S.type); if (r.error) S.bankMsg = r.error; else { S.bank = r.bank; clear(); applyDoc(S, DOCS[1]); S.bankMsg = `Loaded ${r.bank.length} transactions from ${f.name}.`; } render(); };
     rd.readAsText(f);
   } else { S.bankMsg = `${f.name} was added to this session. This preview cannot run OCR on new files. The six sample documents show the full pipeline.`; render(); }
 }
@@ -1258,18 +1750,19 @@ document.addEventListener('click', e => {
     speakdrawer: () => speak(S.drawer.title + '. ' + strip(S.drawer.html)),
     confirm: () => { const m = S.meta[v]; m.conf = 0.98; m.confirmed = true; m.src += ' (confirmed)'; render(); },
     extract: () => runExtraction(v),
-    resetbank: () => { S.bank = genSampleBank(); S.bankMsg = ''; S.p.gifts = S.p.gifts.filter(g => g.txn == null); S.p.wealth = S.p.wealth.filter(x => x.txn == null); applyDoc(S, DOCS[1]); render(); },
-    txn: () => { setTxnCat(+id, v); botSay(`Recorded the transfer as a ${v}. The Wealth Statement difference is now ${rs(wealthCalc(S.p, compute(S.p)).gap)}.`, { conf: 1 }); render(); },
+    resetbank: () => { S.bank = genSampleBank(S.type); S.bankMsg = ''; if (S.type === 'business') { S.p.unrecGross = 0; S.p.loans = 0; S.p.capital = 0; } else { S.p.gifts = S.p.gifts.filter(g => g.txn == null); S.p.wealth = S.p.wealth.filter(x => x.txn == null); } applyDoc(S, DOCS[1]); render(); },
+    txn: () => { setTxnCat(+id, v); if (S.type === 'business') { const cb = computeBiz(S.p); botSay(`Recorded the transfer as ${{ capital: 'owner capital', loan: 'a loan', unrecorded: 'unrecorded sales' }[v] || v}. Tax chargeable is now ${rs(cb.chargeable)}.`, { conf: 1 }); } else botSay(`Recorded the transfer as a ${v}. The Wealth Statement difference is now ${rs(wealthCalc(S.p, compute(S.p)).gap)}.`, { conf: 1 }); render(); },
     ask: () => { if (escalate(v)) { botSay('Sent to a tax professional: ' + esc(v) + '. You can follow the reply under Review and export.', { conf: 1 }); } S.drawer = null; render(); },
     signoff: () => { S.signoff.reviewed = !S.signoff.reviewed; render(); },
     copysum: () => copyText(returnText(derive()), 'Summary copied.'),
-    copyjson: () => { const D = derive(); copyText(JSON.stringify({ taxYear: D.c.ty, profile: S.p, computation: { totalIncome: D.c.total, taxable: D.c.taxable, regime: D.c.salaried ? 'salaried' : 'non-salaried', normalTax: D.c.net, taxPaid: D.c.paid, balance: D.c.balance, finalTax: D.c.finalTax }, wealth: { opening: D.w.openNet, closing: D.w.closeNet, difference: D.w.gap } }, null, 2), 'JSON copied.'); },
-    wireset: () => { wiInit(); render(); },
+    copyjson: () => { const D = derive(); if (S.type === 'business') { copyText(JSON.stringify({ taxYear: D.c.ty, entity: S.p.entity, profile: S.p, computation: { turnover: D.c.sales, taxable: D.c.taxable, normalTax: D.c.normal, minimumTax: D.c.minTax, taxChargeable: D.c.chargeable, taxPaid: D.c.paid, balance: D.c.balance, netSalesTax: D.c.netStax } }, null, 2), 'JSON copied.'); return; } copyText(JSON.stringify({ taxYear: D.c.ty, profile: S.p, computation: { totalIncome: D.c.total, taxable: D.c.taxable, regime: D.c.salaried ? 'salaried' : 'non-salaried', normalTax: D.c.net, taxPaid: D.c.paid, balance: D.c.balance, finalTax: D.c.finalTax }, wealth: { opening: D.w.openNet, closing: D.w.closeNet, difference: D.w.gap } }, null, 2), 'JSON copied.'); },
+    wireset: () => { if (S.type === 'business') wbInit(); else wiInit(); render(); },
     a11y: () => { if (v === 'text') S.a11y.text = S.a11y.text === 'lg' ? 'normal' : 'lg'; else if (v === 'contrast') S.a11y.contrast = S.a11y.contrast === 'high' ? 'normal' : 'high'; else S.autoRead = !S.autoRead; try { localStorage.setItem('taxproto-a11y', JSON.stringify({ a: S.a11y, r: !!S.autoRead })); } catch (x) { } render(); },
     prosel: () => { S.proSel = v; render(); },
-    draftnote: () => { const D = derive(); const f = D.checks.filter(x => x.status !== 'pass').slice(0, 3); $('#noteBox').value = 'Dear Zara,\n\nYour return is ' + D.rd.score + '/100 ready. Before filing, please:\n' + (f.length ? f.map((x, i) => (i + 1) + '. ' + x.title + '. ' + x.detail).join('\n') : '1. Nothing outstanding.') + '\n\nRegards'; },
+    draftnote: () => { const D = derive(); const f = D.checks.filter(x => x.status !== 'pass').slice(0, 3); $('#noteBox').value = 'Dear ' + (S.type === 'business' ? 'Imran' : 'Zara') + ',\n\nYour return is ' + D.rd.score + '/100 ready. Before filing, please:\n' + (f.length ? f.map((x, i) => (i + 1) + '. ' + x.title + '. ' + x.detail).join('\n') : '1. Nothing outstanding.') + '\n\nRegards'; },
     draft: () => { const en = S.esc.find(x => x.id === id); $('#rep-' + id).value = draftReply(en); },
     reply: () => { const en = S.esc.find(x => x.id === id), box = $('#rep-' + id); if (!box.value.trim()) { toast('Write a reply first, or use AI draft reply.'); return; } en.thread.push({ who: 'Tax professional', t: box.value.trim() }); en.status = 'answered'; render(); toast('Reply sent.'); },
+    ttype: () => { if (S.type !== v) switchType(v); },
     replayform: replayForm,
     copyform: () => { const o = {}; formFields(derive()).forEach(s => s.f.forEach(f => { if (f.v != null) o[s.t + '.' + f.id] = { label: f.l, value: f.v, source: f.src }; })); copyText(JSON.stringify(o, null, 2), 'Field map copied.'); },
     cop: () => { askCopilot(v); render(); }
@@ -1281,11 +1774,13 @@ document.addEventListener('change', e => {
   if (k === 'txn') { setTxnCat(+el.dataset.id, el.value); render(); }
   else if (k === 'wealth') { S.p.wealth[+el.dataset.i][el.dataset.f] = +el.value || 0; render(); }
   else if (k === 'expenses') { S.p.expenses = +el.value || 0; S.meta.expenses = { conf: 0.9, src: 'Your entry' }; render(); }
+  else if (k === 'entity') { S.p.entity = el.value; render(); }
   else if (el.id === 'csvIn' && el.files[0]) onFile(el.files[0]);
 });
 document.addEventListener('input', e => {
   const el = e.target;
-  if (el.dataset && el.dataset.wi) { S.wi[el.dataset.wi] = +el.value; const lab = $('#wv-' + el.dataset.wi); if (lab) lab.textContent = rs(+el.value); $('#wiOut').innerHTML = wiHTML(); }
+  if (el.dataset && el.dataset.wb) { S.wb[el.dataset.wb] = +el.value; const lab = $('#wv-' + el.dataset.wb); if (lab) lab.textContent = el.dataset.wb === 'cogs' ? el.value + '%' : rs(+el.value); $('#wiOut').innerHTML = wbHTML(); }
+  else if (el.dataset && el.dataset.wi) { S.wi[el.dataset.wi] = +el.value; const lab = $('#wv-' + el.dataset.wi); if (lab) lab.textContent = rs(+el.value); $('#wiOut').innerHTML = wiHTML(); }
   else if (el.id === 'glQ') { S.glossQ = el.value; $('#glList').innerHTML = glossHTML(el.value); }
 });
 document.addEventListener('submit', e => {
@@ -1295,7 +1790,7 @@ document.addEventListener('submit', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.drawer) { S.drawer = null; render(); return; }
-  const nav = S.role === 'taxpayer' ? NAV_T : NAV_P;
+  const nav = S.role === 'taxpayer' ? (S.type === 'business' ? NAV_B : NAV_T) : NAV_P;
   if (e.altKey && /^[1-9]$/.test(e.key) && nav[+e.key - 1]) { e.preventDefault(); go(nav[+e.key - 1][0]); return; }
   if (e.key === '/' && S.view === 'assistant' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); const el = $('#chatIn'); if (el) el.focus(); }
 });
@@ -1303,9 +1798,7 @@ document.addEventListener('keydown', e => {
 /* ---------- start ---------- */
 try { const a = JSON.parse(localStorage.getItem('taxproto-a11y') || 'null'); if (a) { S.a11y = a.a || S.a11y; S.autoRead = !!a.r; } } catch (x) { }
 seedPro();
-botSay('Hello Zara. I have read 4 of your 6 documents for tax year 2026 and filled in your return. Two are still waiting: the freelance earnings sheet and the donation receipt. Open Documents to run them, or just tell me about your finances.', { conf: 0.95 });
-const u0 = S.bank.find(r => r.cat === 'unclear');
-botSay(`One more thing. On ${fmtDate(u0.date)} ${rs(u0.credit)} arrived from "M KHAN". I cannot tell whether it was a gift, a loan or income, and the answer changes your Wealth Statement. Which was it?`, { conf: u0.conf });
+startChat();
 render();
 /*END UI4*/
 </script>
