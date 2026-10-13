@@ -161,6 +161,18 @@ svg text{fill:var(--muted);font:11px var(--f-mono)}
 .kpi{display:flex;flex-direction:column;gap:2px}
 .kpi b{font:500 1.35rem var(--f-mono);font-variant-numeric:tabular-nums}
 .kpi small{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+/* return form preview */
+.fsec{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.fsec h2{background:var(--accent);color:var(--accent-ink);padding:9px 14px;font-size:1rem;display:flex;gap:10px;align-items:center}
+.fsec .ft{font:500 .85rem var(--f-mono);border:1px solid currentColor;border-radius:4px;padding:0 7px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px;padding:14px}
+.ff{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ff label{font-size:.8rem;font-weight:600;color:var(--muted)}
+.ff input{width:100%;font-family:var(--f-mono);font-size:.95rem;background:var(--surface2);cursor:default}
+.ff.empty input{border-style:dashed;background:transparent}
+.ff .fs{font-size:.75rem;color:var(--muted);min-height:1.1em}
+.ff.flash input{animation:ffill 1.6s ease-out}
+@keyframes ffill{0%{background:var(--gold-soft);border-color:var(--gold);transform:translateY(-3px)}100%{background:var(--surface2);transform:none}}
 @media (max-width:860px){
   .shell{grid-template-columns:minmax(0,1fr)}
   .rail{position:static;height:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px 16px;align-items:center}
@@ -483,7 +495,7 @@ const strip = h => String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(
 let S = makeState();
 let TODAY = new Date();
 
-const NAV_T = [['assistant','Assistant'],['documents','Documents'],['return','Tax computation'],['wealth','Wealth Statement'],['checks','Checks'],['readiness','Readiness and timeline'],['whatif','What-if simulator'],['review','Review and export'],['glossary','FBR language guide']];
+const NAV_T = [['assistant','Assistant'],['documents','Documents'],['return','Tax computation'],['form','Return form preview'],['wealth','Wealth Statement'],['checks','Checks'],['readiness','Readiness and timeline'],['whatif','What-if simulator'],['review','Review and export'],['glossary','FBR language guide']];
 const NAV_P = [['clients','Clients'],['queue','Review queue'],['copilot','Research copilot'],['glossary','FBR language guide']];
 const FIELDS = [['salary','Annual salary'],['whtSalary','Tax deducted by employer'],['rent','Rent income'],['bizReceipts','Freelance receipts'],['bizExpenses','Business expenses'],['profitOnDebt','Bank profit (final tax)'],['zakat','Zakat paid'],['donation','Donations'],['advance','Advance tax paid'],['expenses','Personal expenses (year)']];
 
@@ -684,9 +696,9 @@ function respond(text) {
     const extra = ` ${summaryLine(before, af)}. Wealth Statement difference ${rs(wb.gap)} to ${rs(wa.gap)}.`;
     botSay(msg + extra, { conf: 0.82, changes });
   };
-  let m = t.match(/(?:open|go to|show|take me to|switch to)\s+(?:my\s+|the\s+)?(documents?|return|tax|wealth|checks?|validation|readiness|timeline|what.?if|simulator|review|export|glossary|guide)/);
+  let m = t.match(/(?:open|go to|show|take me to|switch to)\s+(?:my\s+|the\s+)?(documents?|return form|form|return|tax|wealth|checks?|validation|readiness|timeline|what.?if|simulator|review|export|glossary|guide)/);
   if (m) {
-    const w = m[1], map = [[/doc/, 'documents'], [/return|tax/, 'return'], [/wealth/, 'wealth'], [/check|valid/, 'checks'], [/ready|timeline/, 'readiness'], [/what|sim/, 'whatif'], [/review|export/, 'review'], [/gloss|guide/, 'glossary']];
+    const w = m[1], map = [[/form/, 'form'], [/doc/, 'documents'], [/return|tax/, 'return'], [/wealth/, 'wealth'], [/check|valid/, 'checks'], [/ready|timeline/, 'readiness'], [/what|sim/, 'whatif'], [/review|export/, 'review'], [/gloss|guide/, 'glossary']];
     const v = map.find(x => x[0].test(w))[1];
     botSay('Opening ' + NAV_T.find(x => x[0] === v)[1] + '.'); S.view = v; return;
   }
@@ -753,7 +765,7 @@ function runExtraction(id) {
       const doc = DOCS.find(d => d.id === id); applyDoc(S, doc);
       const after = compute(S.p), res = S.docState[id].fields;
       const low = res.filter(f => f.conf < 0.8);
-      botSay(`Read <b>${esc(doc.name)}</b>: ${res.map(f => esc(f.label) + ' ' + rs(f.value)).join(', ')}. ${low.length ? 'I repaired characters in ' + low.map(f => esc(f.label)).join(', ') + ', so please confirm.' : ''} ${summaryLine(before, after)}.`, { conf: Math.min(...res.map(f => f.conf)), changes: res.map(f => f.label + ' ' + rs(f.value)) });
+      botSay(`Read <b>${esc(doc.name)}</b>: ${res.map(f => esc(f.label) + ' ' + rs(f.value)).join(', ')}. ${low.length ? 'I repaired characters in ' + low.map(f => esc(f.label)).join(', ') + ', so please confirm.' : ''} ${summaryLine(before, after)}. <button class="btn sm" data-act="go" data-v="form">Watch the form fill</button>`, { conf: Math.min(...res.map(f => f.conf)), changes: res.map(f => f.label + ' ' + rs(f.value)) });
       render();
     } else { render(); setTimeout(tick, 380); }
   };
@@ -773,7 +785,7 @@ function viewAssistant(D) {
         <div class="tools">${m.conf != null ? confBadge(m.conf) : ''}<button class="btn sm quiet" data-act="speak" data-i="${i}" aria-label="Read this reply aloud">Read aloud</button></div></div>`).join('');
   const chips = [];
   if (S.bank.some(r => r.cat === 'unclear' && !r.confirmed)) chips.push('It was a gift of 500k from my father', 'It was a loan of 500k from my brother');
-  chips.push(compute(S.p).salaried ? 'Which slabs apply to me and why?' : 'Why am I on non-salaried slabs?', 'How much tax do I owe?', 'What is ATL?', 'I paid zakat of 80k', 'I want to talk to a tax professional');
+  chips.push(compute(S.p).salaried ? 'Which slabs apply to me and why?' : 'Why am I on non-salaried slabs?', 'How much tax do I owe?', 'What is ATL?', 'Open the return form', 'I paid zakat of 80k', 'I want to talk to a tax professional');
   const rows = FIELDS.map(([k, l]) => {
     const m = S.meta[k], v = S.p[k];
     return `<tr><td>${l}</td><td class="num">${rs(v)}</td><td class="small">${m ? esc(m.src) : '<span class="muted">not provided</span>'}${m ? '<br>' + confBadge(m.conf) : ''}${m && m.conf < 0.8 && !m.confirmed ? ` <button class="btn sm quiet" data-act="confirm" data-v="${k}">Confirm</button>` : ''}</td></tr>`;
@@ -1041,6 +1053,83 @@ function viewGlossary() {
   <div class="grid3" id="glList">${glossHTML(S.glossQ)}</div>`;
 }
 /*END UI3*/
+/*UI3B: auto-filling return form*/
+function formFields(D) {
+  const p = S.p, c = D.c, m = S.meta, st = id => S.docState[id].status === 'done';
+  const dn = id => DOCS.find(d => d.id === id).name;
+  const from = k => (m[k] ? m[k].src : '');
+  const cf = k => (m[k] ? m[k].conf : 0.9);
+  const P = (id, l, k, need, o) => ({ id, l, v: m[k] ? rs(p[k]) : null, src: from(k), conf: cf(k), wait: need ? dn(need) : 'your message to the assistant', ...(o || {}) });
+  const C = (id, l, v, ok, wait) => ({ id, l, v: ok === false ? null : v, src: 'Computed by the tax engine', conf: 0.9, wait: wait || '' });
+  const sum = (k, t) => p.wealth.filter(w => w.type === t).reduce((a, w) => a + (+w[k] || 0), 0);
+  const gifts = p.gifts.reduce((a, g) => a + g.amount, 0);
+  const nm = st('d1');
+  return [
+    { t: 'A', h: 'Taxpayer details', f: [
+      { id: 'name', l: 'Name', v: nm ? 'Zara Khan' : null, src: dn('d1'), conf: 0.97, wait: dn('d1') },
+      { id: 'cnic', l: 'CNIC', v: '00000-0000000-0', src: 'Profile (sample data)', conf: 1, wait: '' },
+      { id: 'ntn', l: 'NTN', v: '0000000-0', src: 'Profile (sample data)', conf: 1, wait: '' },
+      { id: 'ty', l: 'Tax year', v: String(p.ty), src: 'Your selection', conf: 1, wait: '' },
+      { id: 'res', l: 'Residential status', v: 'Resident individual', src: 'Profile (sample data)', conf: 1, wait: '' },
+      { id: 'emp', l: 'Employer', v: nm ? 'Orbit Software (Pvt) Ltd' : null, src: dn('d1'), conf: 0.97, wait: dn('d1') }] },
+    { t: 'B', h: 'Income from salary', f: [P('sal', 'Gross salary', 'salary', 'd1'), P('wht', 'Tax deducted by employer', 'whtSalary', 'd1')] },
+    { t: 'C', h: 'Income from property', f: [P('rent', 'Annual rent received', 'rent', 'd3')] },
+    { t: 'D', h: 'Income from business', f: [P('brec', 'Gross receipts', 'bizReceipts', 'd5'), P('bexp', 'Business expenses', 'bizExpenses', 'd5'),
+      C('bnet', 'Net business income', rs(c.biz), !!(m.bizReceipts && m.bizExpenses), dn('d5'))] },
+    { t: 'E', h: 'Income taxed under final tax regime', f: [P('pod', 'Profit on bank deposits', 'profitOnDebt', 'd2'), C('fin', 'Final tax at 15% (deducted by bank)', rs(c.finalTax), !!m.profitOnDebt, dn('d2'))] },
+    { t: 'F', h: 'Deductible allowances', f: [P('zak', 'Zakat paid', 'zakat', 'd4')] },
+    { t: 'G', h: 'Tax credits', f: [P('don', 'Donations paid', 'donation', 'd6'), C('cred', 'Donation tax credit', rs(c.credit), !!m.donation, dn('d6'))] },
+    { t: 'H', h: 'Tax computation', f: [
+      C('tinc', 'Total income', rs(c.total), true), C('tax', 'Taxable income', rs(c.taxable), true),
+      C('slab', 'Slab table applied', c.salaried ? 'Salaried slabs' : 'Non-salaried slabs', true),
+      C('chg', 'Tax chargeable', rs(c.gross + c.sur), true), C('net', 'Tax after credits', rs(c.net), true),
+      P('adv', 'Advance tax paid', 'advance', null, { wait: 'your entry' }),
+      C('paid', 'Total tax paid', rs(c.paid), true), C('bal', c.balance >= 0 ? 'Balance payable' : 'Refund claimable', rs(Math.abs(c.balance)), true)] },
+    { t: 'I', h: 'Wealth Statement', f: [
+      C('wao', 'Total assets, 30 Jun 2025', rs(sum('open', 'asset')), true), C('wac', 'Total assets, 30 Jun 2026', rs(sum('close', 'asset')), true),
+      C('wlo', 'Total liabilities, 30 Jun 2025', rs(sum('open', 'liab')), true), C('wlc', 'Total liabilities, 30 Jun 2026', rs(sum('close', 'liab')), true),
+      C('wnw', 'Net worth, 30 Jun 2026', rs(D.w.closeNet), true), P('wex', 'Personal expenses', 'expenses', null, { wait: 'your entry' }),
+      { id: 'wgi', l: 'Gifts received', v: rs(gifts), src: gifts ? 'Your message' : 'None declared', conf: 0.9, wait: '' },
+      C('wgap', 'Unexplained difference', rs(D.w.gap), true)] }
+  ];
+}
+function replayForm() {
+  const D = derive(), n = formFields(D).reduce((a, s) => a + s.f.filter(f => f.v != null).length, 0);
+  S.formSeen = new Set(); S.formReveal = 0; S.formStarted = true;
+  const step = () => {
+    if (S.view !== 'form') { S.formReveal = null; return; }
+    S.formReveal++;
+    if (S.formReveal >= n) { S.formReveal = null; render(); return; }
+    render(); setTimeout(step, 90);
+  };
+  render(); setTimeout(step, 90);
+}
+function viewForm(D) {
+  if (!S.formSeen) S.formSeen = new Set();
+  if (!S.formStarted) { S.formStarted = true; S.formReveal = 0; setTimeout(() => { S.formSeen = new Set(); const n = formFields(derive()).reduce((a, s) => a + s.f.filter(f => f.v != null).length, 0); const step = () => { if (S.view !== 'form') { S.formReveal = null; return; } S.formReveal++; if (S.formReveal >= n) { S.formReveal = null; render(); return; } render(); setTimeout(step, 90); }; step(); }, 250); }
+  const secs = formFields(D);
+  let order = 0, total = 0, shown = 0; S._ps = [];
+  const pendingDocs = DOCS.filter(d => S.docState[d.id].status !== 'done');
+  const body = secs.map(s => `<section class="fsec" aria-labelledby="fs-${s.t}"><h2 id="fs-${s.t}"><span class="ft">${s.t}</span>${s.h}</h2><div class="fgrid">${s.f.map(f => {
+    total++;
+    const has = f.v != null, idx = has ? order++ : -1, vis = has && (S.formReveal == null || idx < S.formReveal);
+    if (vis) shown++;
+    const flash = vis && !S.formSeen.has(f.id); if (flash) S._ps.push(f.id);
+    return `<div class="ff ${vis ? '' : 'empty'} ${flash ? 'flash' : ''}"><label for="f-${f.id}">${f.l}</label>
+      <input id="f-${f.id}" readonly value="${vis ? esc(f.v) : ''}" placeholder="${has && S.formReveal != null ? 'Filling' : 'Waiting for data'}">
+      <div class="fs">${vis ? `${esc(f.src)}${f.conf < 1 ? ' ' + confBadge(f.conf) : ''}` : f.wait ? `Needs: ${esc(f.wait)}` : ''}</div></div>`;
+  }).join('')}</div></section>`).join('');
+  const pct = Math.round(shown / total * 100);
+  return `${vhead('Return form preview', 'Upload documents and talk to the assistant. Every value is categorized and written into the matching field below by the platform, with its source and confidence.')}
+  <div class="callout"><b>Prototype mock.</b> This is the platform's own preview of an IRIS-style income tax return. It is not the FBR IRIS portal, uses no FBR branding or login, and nothing is filed. Personal numbers are sample data.</div>
+  <section class="card"><div class="row" style="justify-content:space-between"><div><h2>Return for tax year ${S.p.ty}</h2><span class="note">${shown} of ${total} fields filled</span></div>
+    <div class="row"><button class="btn quiet" data-act="replayform">Replay auto-fill</button><button class="btn quiet" data-act="copyform">Copy field map (JSON)</button></div></div>
+    <div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Form completion"><i style="width:${pct}%"></i></div>
+    ${pendingDocs.length ? `<div class="callout">Waiting on ${pendingDocs.length} document${pendingDocs.length > 1 ? 's' : ''}: ${pendingDocs.map(d => esc(d.name)).join(', ')}. Fields that depend on them fill when you run extraction. Computed totals are provisional until then. <button class="btn sm" data-act="go" data-v="documents">Open Documents</button></div>` : '<div class="callout good">All documents are read. Review the figures, then confirm on the Review screen.</div>'}
+  </section>${body}
+  <section class="card"><div class="row"><button class="btn primary" disabled>Submit in IRIS</button><span class="note">Submission happens in the real IRIS portal and is outside this prototype. The platform hands over the figures above.</span></div></section>`;
+}
+/*END UI3B*/
 /*UI4*/
 /* ---------- Professional workspace ---------- */
 const CLIENTS = [
@@ -1116,8 +1205,9 @@ function shell(D, view) {
 function render() {
   const D = derive(), root = document.documentElement;
   root.dataset.text = S.a11y.text; root.dataset.contrast = S.a11y.contrast;
-  const V = { assistant: viewAssistant, documents: viewDocuments, return: viewReturn, wealth: viewWealth, checks: viewChecks, readiness: viewReadiness, whatif: viewWhatIf, review: viewReview, glossary: viewGlossary, clients: viewClients, queue: viewQueue, copilot: viewCopilot };
+  const V = { assistant: viewAssistant, documents: viewDocuments, return: viewReturn, form: viewForm, wealth: viewWealth, checks: viewChecks, readiness: viewReadiness, whatif: viewWhatIf, review: viewReview, glossary: viewGlossary, clients: viewClients, queue: viewQueue, copilot: viewCopilot };
   $('#app').innerHTML = shell(D, V[S.view](D));
+  (S._ps || []).forEach(i => S.formSeen && S.formSeen.add(i)); S._ps = [];
   const m = $('#msgs'); if (m) m.scrollTop = m.scrollHeight;
   if (S.drawer) { const b = $('#drawerClose'); if (b) b.focus(); }
 }
@@ -1180,6 +1270,8 @@ document.addEventListener('click', e => {
     draftnote: () => { const D = derive(); const f = D.checks.filter(x => x.status !== 'pass').slice(0, 3); $('#noteBox').value = 'Dear Zara,\n\nYour return is ' + D.rd.score + '/100 ready. Before filing, please:\n' + (f.length ? f.map((x, i) => (i + 1) + '. ' + x.title + '. ' + x.detail).join('\n') : '1. Nothing outstanding.') + '\n\nRegards'; },
     draft: () => { const en = S.esc.find(x => x.id === id); $('#rep-' + id).value = draftReply(en); },
     reply: () => { const en = S.esc.find(x => x.id === id), box = $('#rep-' + id); if (!box.value.trim()) { toast('Write a reply first, or use AI draft reply.'); return; } en.thread.push({ who: 'Tax professional', t: box.value.trim() }); en.status = 'answered'; render(); toast('Reply sent.'); },
+    replayform: replayForm,
+    copyform: () => { const o = {}; formFields(derive()).forEach(s => s.f.forEach(f => { if (f.v != null) o[s.t + '.' + f.id] = { label: f.l, value: f.v, source: f.src }; })); copyText(JSON.stringify(o, null, 2), 'Field map copied.'); },
     cop: () => { askCopilot(v); render(); }
   };
   if (A[a]) A[a]();
