@@ -1,0 +1,1221 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>AI Tax Platform Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout concept: a left rail of modules, a sticky live-return strip on top, one working surface in the middle. */
+:root{
+  --bg:#EDF2EF; --surface:#FFFFFF; --surface2:#F4F8F5; --ink:#12261D; --muted:#4D6257; --line:#D0DCD4;
+  --accent:#0B5B3C; --accent-ink:#FFFFFF; --accent-soft:#DCEDE3; --gold:#8F6710; --gold-soft:#F3E6C3;
+  --hi:#0C7573; --mid:#9A5A08; --lo:#B3261E; --hi-soft:#D5EDEB; --mid-soft:#F6E5CD; --lo-soft:#F8DAD7;
+  --f-display:'Bricolage Grotesque',system-ui,sans-serif; --f-body:'Public Sans',system-ui,sans-serif; --f-mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0B1612; --surface:#12211A; --surface2:#172A21; --ink:#E5EFE9; --muted:#9CB2A5; --line:#274137;
+  --accent:#5CC495; --accent-ink:#08140E; --accent-soft:#1A3B2D; --gold:#E0BB62; --gold-soft:#3A3114;
+  --hi:#4CC7C4; --mid:#E3A84F; --lo:#F28B82; --hi-soft:#123533; --mid-soft:#3A2B12; --lo-soft:#3E1B19; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1612; --surface:#12211A; --surface2:#172A21; --ink:#E5EFE9; --muted:#9CB2A5; --line:#274137;
+  --accent:#5CC495; --accent-ink:#08140E; --accent-soft:#1A3B2D; --gold:#E0BB62; --gold-soft:#3A3114;
+  --hi:#4CC7C4; --mid:#E3A84F; --lo:#F28B82; --hi-soft:#123533; --mid-soft:#3A2B12; --lo-soft:#3E1B19; color-scheme:dark}
+:root[data-contrast="high"]{--muted:var(--ink);--line:var(--ink)}
+*{box-sizing:border-box}
+html{font-size:15px;height:100%}
+html[data-text="lg"]{font-size:18px}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 1rem/1.5 var(--f-body);min-height:100%}
+h1,h2,h3{font-family:var(--f-display);line-height:1.15;margin:0;text-wrap:balance;font-weight:700}
+h1{font-size:1.7rem}h2{font-size:1.2rem}h3{font-size:1rem}
+p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.mono,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.shell{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:100vh}
+.rail{background:var(--surface);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;align-self:start;height:100vh;overflow:auto}
+.brand{padding:4px 8px 14px;display:flex;flex-direction:column;gap:2px}
+.brand b{font:700 1.15rem/1.1 var(--f-display);color:var(--accent)}
+.brand span{font-size:.78rem;color:var(--muted)}
+.nav{all:unset;box-sizing:border-box;cursor:pointer;padding:9px 10px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-weight:500}
+.nav:hover{background:var(--surface2)}
+.nav[aria-current="page"]{background:var(--accent);color:var(--accent-ink)}
+.nav:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.badge{font:500 .72rem var(--f-mono);padding:1px 7px;border-radius:99px;background:var(--gold-soft);color:var(--gold)}
+.nav[aria-current="page"] .badge{background:var(--accent-ink);color:var(--accent)}
+.rail .sep{height:1px;background:var(--line);margin:8px 4px}
+.tog{all:unset;box-sizing:border-box;cursor:pointer;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:.85rem;display:flex;justify-content:space-between}
+.tog[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.main{min-width:0;display:flex;flex-direction:column}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:10px clamp(16px,3vw,32px);display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center}
+.metric{display:flex;flex-direction:column;min-width:0}
+.metric small{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.metric b{font:500 1.05rem var(--f-mono);font-variant-numeric:tabular-nums}
+.grow{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{all:unset;box-sizing:border-box;cursor:pointer;padding:6px 12px;font-size:.88rem;font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg button:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}
+.view{padding:22px clamp(16px,3vw,32px) 60px;display:flex;flex-direction:column;gap:18px;max-width:1180px;width:100%}
+.vhead{display:flex;flex-direction:column;gap:4px}
+.vhead p{color:var(--muted);max-width:68ch}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card.flat{background:var(--surface2)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;padding:8px 14px;border-radius:8px;border:1px solid var(--accent);color:var(--accent);font-weight:600;font-size:.92rem;text-align:center}
+.btn:hover{background:var(--accent-soft)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.sm{padding:4px 10px;font-size:.82rem}
+.btn.quiet{border-color:var(--line);color:var(--ink)}
+.btn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn[disabled]{opacity:.5;cursor:default}
+input[type=text],input[type=number],textarea,select{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.pill.hi,.pill.pass{background:var(--hi-soft);color:var(--hi)}
+.pill.mid,.pill.warn{background:var(--mid-soft);color:var(--mid)}
+.pill.lo,.pill.fail{background:var(--lo-soft);color:var(--lo)}
+.pill.info{background:var(--accent-soft);color:var(--accent)}
+.pill.gold{background:var(--gold-soft);color:var(--gold)}
+.conf{display:inline-block;width:46px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;vertical-align:middle}
+.conf i{display:block;height:100%;background:currentColor}
+.conf.hi{color:var(--hi)}.conf.mid{color:var(--mid)}.conf.lo{color:var(--lo)}
+.cw{font-size:.78rem;font-weight:600;margin-left:6px}
+.cw.hi{color:var(--hi)}.cw.mid{color:var(--mid)}.cw.lo{color:var(--lo)}
+.tw{overflow-x:auto;max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+td.num,th.num{text-align:right;white-space:nowrap}
+tr.total td{font-weight:700;border-top:2px solid var(--ink)}
+.scroll{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+/* assistant */
+.assist{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:start}
+.chat{padding:0;gap:0}
+.msgs{padding:16px;display:flex;flex-direction:column;gap:12px;max-height:520px;min-height:340px;overflow:auto}
+.msg{max-width:88%;padding:10px 13px;border-radius:12px;display:flex;flex-direction:column;gap:6px;min-width:0;overflow-wrap:anywhere}
+.msg.bot{background:var(--surface2);border:1px solid var(--line);align-self:flex-start;border-top-left-radius:3px}
+.msg.user{background:var(--accent);color:var(--accent-ink);align-self:flex-end;border-top-right-radius:3px}
+.msg .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chg{display:inline-block;font:500 .78rem var(--f-mono);background:var(--gold-soft);color:var(--gold);padding:2px 8px;border-radius:6px;margin:2px 4px 0 0}
+.chips{padding:0 16px 12px;display:flex;gap:8px;flex-wrap:wrap}
+.chip{all:unset;cursor:pointer;box-sizing:border-box;font-size:.83rem;padding:5px 11px;border:1px solid var(--line);border-radius:99px;background:var(--surface)}
+.chip:hover{border-color:var(--accent);background:var(--accent-soft)}
+.chip:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.composer{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+.composer input{flex:1}
+.note{font-size:.85rem;color:var(--muted)}
+.callout{border-left:4px solid var(--gold);background:var(--gold-soft);padding:10px 14px;border-radius:0 8px 8px 0;font-size:.92rem}
+.callout.bad{border-color:var(--lo);background:var(--lo-soft)}
+.callout.good{border-color:var(--hi);background:var(--hi-soft)}
+/* docs */
+.pipe{display:flex;flex-wrap:wrap;gap:6px;font-size:.8rem}
+.pipe span{padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.pipe span.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pipe span.done{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+pre{margin:0;font:400 .8rem/1.5 var(--f-mono);white-space:pre-wrap;background:var(--surface2);border:1px solid var(--line);padding:10px;border-radius:8px;overflow-wrap:anywhere}
+details summary{cursor:pointer;font-size:.85rem;color:var(--accent);font-weight:600}
+.share{position:relative;height:14px;border-radius:7px;background:var(--surface2);border:1px solid var(--line)}
+.share i{position:absolute;left:0;top:0;bottom:0;border-radius:7px 0 0 7px;background:var(--accent)}
+.share u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--gold);text-decoration:none}
+/* checks */
+.find{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.find:last-child{border-bottom:0}
+.find .acts{grid-column:2;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ic{width:22px;height:22px;flex:none}
+.ic.pass{color:var(--hi)}.ic.warn{color:var(--mid)}.ic.fail{color:var(--lo)}
+/* gauge, timeline */
+.gauge{width:min(100%,300px);margin:0 auto;display:block}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.tl{list-style:none;margin:0;padding:0 0 0 18px;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:14px}
+.tl li{position:relative;display:flex;flex-direction:column;gap:2px}
+.tl li::before{content:"";position:absolute;left:-25px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--muted)}
+.tl li.done::before{background:var(--muted)}
+.tl li.law::before{border-radius:2px}
+.tl li.now::before{background:var(--gold);border-color:var(--gold);box-shadow:0 0 0 4px var(--gold-soft)}
+.tl li.done .t{color:var(--muted)}
+.tl .d{font:500 .78rem var(--f-mono);color:var(--muted)}
+/* whatif */
+.sl{display:grid;gap:4px}
+.sl label{display:flex;justify-content:space-between;font-size:.9rem;font-weight:500}
+svg text{fill:var(--muted);font:11px var(--f-mono)}
+.chart{width:100%;height:auto;display:block}
+/* drawer */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--surface);border-left:1px solid var(--line);box-shadow:-12px 0 32px rgba(0,0,0,.18);z-index:40;padding:20px 20px calc(24px + env(safe-area-inset-bottom,0px));overflow:auto;display:flex;flex-direction:column;gap:14px}
+.drawer ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:12px}
+.calc{font:400 .83rem/1.5 var(--f-mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:6px 9px;margin-top:4px;overflow-wrap:anywhere}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:8px;z-index:60;font-size:.9rem}
+.sign{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:8px}
+.stepper{display:flex;gap:6px;flex-wrap:wrap}
+.stepper span{padding:4px 12px;border-radius:99px;border:1px solid var(--line);font-size:.82rem;color:var(--muted)}
+.stepper span.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.thread{display:flex;flex-direction:column;gap:6px;font-size:.9rem}
+.thread div{padding:6px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--line)}
+.thread div b{font-size:.78rem;color:var(--accent)}
+.kpi{display:flex;flex-direction:column;gap:2px}
+.kpi b{font:500 1.35rem var(--f-mono);font-variant-numeric:tabular-nums}
+.kpi small{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+@media (max-width:860px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .rail{position:static;height:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px 16px;align-items:center}
+  .rail .brand,.rail .sep,.rail .a11y{display:none}
+  .nav{white-space:nowrap}
+  .assist{grid-template-columns:minmax(0,1fr)}
+  .top{position:static}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<div id="app"></div>
+<div id="toast" class="toast" role="status" hidden></div>
+<script>
+/*ENGINE*/
+const NF = new Intl.NumberFormat('en-US');
+const rs = n => (n < 0 ? '-' : '') + 'Rs ' + NF.format(Math.round(Math.abs(n)));
+const pc = (x, d = 0) => (x * 100).toFixed(d) + '%';
+const TOL = 50000;
+const confLevel = c => (c >= 0.85 ? 'hi' : c >= 0.6 ? 'mid' : 'lo');
+const confWord = c => ({ hi: 'High', mid: 'Medium', lo: 'Low' })[confLevel(c)];
+
+/* Slab rows: [from, fixed tax, rate on excess] */
+const NON = [[0,0,0],[600000,0,.15],[1200000,90000,.20],[1600000,170000,.30],[3200000,650000,.40],[5600000,1610000,.45]];
+const SLABS = {
+  2026: {
+    salaried: [[0,0,0],[600000,0,.01],[1200000,6000,.11],[2200000,116000,.23],[3200000,346000,.30],[4100000,616000,.35]],
+    non: NON, surSal: 0.09, surNon: 0.09
+  },
+  2027: {
+    salaried: [[0,0,0],[600000,0,.01],[1200000,6000,.11],[2200000,116000,.20],[3200000,316000,.25],[4100000,541000,.29],[5600000,976000,.32],[7000000,1424000,.35]],
+    non: NON, surSal: 0, surNon: 0.09
+  }
+};
+
+function taxOn(table, income) {
+  let idx = 0;
+  table.forEach((r, i) => { if (income >= r[0]) idx = i; });
+  const r = table[idx];
+  return { tax: r[1] + (income - r[0]) * r[2], idx, slab: r, next: table[idx + 1] ? table[idx + 1][0] : null };
+}
+
+function compute(p, ty) {
+  ty = ty || p.ty;
+  const T = SLABS[ty];
+  const biz = Math.max(0, p.bizReceipts - p.bizExpenses);
+  const total = p.salary + p.rent + biz;
+  const zakat = Math.min(p.zakat, total);
+  const taxable = Math.max(0, total - zakat);
+  const share = taxable > 0 ? Math.min(1, p.salary / taxable) : 0;
+  const salaried = taxable > 0 && share >= 0.75;
+  const table = salaried ? T.salaried : T.non;
+  const r = taxOn(table, taxable);
+  const gross = r.tax;
+  const surRate = salaried ? T.surSal : T.surNon;
+  const sur = taxable > 10000000 ? gross * surRate : 0;
+  const donEligible = Math.min(p.donation, 0.30 * taxable);
+  const credit = taxable > 0 ? Math.round(gross * donEligible / taxable) : 0;
+  const net = Math.max(0, gross + sur - credit);
+  const finalTax = Math.round(0.15 * p.profitOnDebt);
+  const paid = p.whtSalary + p.advance;
+  const balance = net - paid;
+  return { ty, biz, total, zakat, taxable, share, salaried, table, slab: r, gross, sur, surRate, donEligible, credit, net, finalTax, paid, balance,
+           eff: taxable > 0 ? net / taxable : 0 };
+}
+
+function wealthCalc(p, c) {
+  const sum = (k, type) => p.wealth.filter(w => w.type === type).reduce((a, w) => a + (+w[k] || 0), 0);
+  const openNet = sum('open', 'asset') - sum('open', 'liab');
+  const closeNet = sum('close', 'asset') - sum('close', 'liab');
+  const gifts = p.gifts.reduce((a, g) => a + g.amount, 0);
+  const lines = [
+    ['Salary, rent and business income', c.total],
+    ['Profit on bank deposits (before final tax)', p.profitOnDebt],
+    ['Gifts received', gifts],
+    ['Tax paid during the year (withheld + advance)', -c.paid],
+    ['Final tax on bank profit', -c.finalTax],
+    ['Zakat paid', -c.zakat],
+    ['Donations paid', -p.donation],
+    ['Personal expenses', -p.expenses]
+  ];
+  const expected = lines.reduce((a, l) => a + l[1], 0);
+  const actual = closeNet - openNet;
+  const gap = actual - expected;
+  return { openNet, closeNet, gifts, lines, expected, actual, gap, ok: Math.abs(gap) <= TOL };
+}
+
+/* ---------- OCR helpers ---------- */
+function ocrNum(raw) {
+  let fixes = 0;
+  const map = { O: '0', o: '0', S: '5', I: '1', l: '1', B: '8' };
+  const s = raw.replace(/[OoSIlB]/g, m => { fixes++; return map[m]; }).replace(/[^0-9]/g, '');
+  return { value: +s || 0, fixes };
+}
+
+/* ---------- transaction classifier ---------- */
+const CATS = {
+  salary: 'Salary', rent: 'Rent income', freelance: 'Freelance receipts', profit: 'Bank profit', zakat: 'Zakat',
+  donation: 'Donation', expense: 'Personal spending', gift: 'Gift received', loan: 'Loan received', unclear: 'Needs a decision', other: 'Other'
+};
+function classifyTxn(desc, credit, debit) {
+  const d = desc.toLowerCase();
+  if (/salary|payroll|sal cr/.test(d)) return { cat: 'salary', conf: 0.97 };
+  if (/rent|tenant/.test(d)) return { cat: 'rent', conf: 0.93 };
+  if (/payoneer|upwork|fiverr|wise |client payout|swift/.test(d)) return { cat: 'freelance', conf: 0.9 };
+  if (/profit|markup|interest/.test(d)) return { cat: 'profit', conf: 0.95 };
+  if (/zakat/.test(d)) return { cat: 'zakat', conf: 0.96 };
+  if (/donat|welfare|trust|charity|foundation/.test(d)) return { cat: 'donation', conf: 0.85 };
+  if (/school|fees|k-electric|sui|wapda|ptcl|utility|bill|grocer|mart|fuel|pharmacy/.test(d)) return { cat: 'expense', conf: 0.9 };
+  if (credit > 0 && /ibft|raast|transfer|trf|fund/.test(d)) return { cat: 'unclear', conf: 0.42 };
+  return { cat: 'other', conf: 0.5 };
+}
+
+function genSampleBank() {
+  const rows = [];
+  const add = (date, desc, credit, debit, extra) => {
+    const c = classifyTxn(desc, credit, debit);
+    rows.push(Object.assign({ date, desc, credit, debit, cat: c.cat, conf: c.conf, confirmed: false }, extra || {}));
+  };
+  const months = [[2025,7],[2025,8],[2025,9],[2025,10],[2025,11],[2025,12],[2026,1],[2026,2],[2026,3],[2026,4],[2026,5],[2026,6]];
+  const d2 = n => String(n).padStart(2, '0');
+  months.forEach(([y, m], i) => {
+    add(`${y}-${d2(m)}-28`, 'SALARY CR ORBIT SOFTWARE', i === 11 ? 250669 : 250667, 0);
+    add(`${y}-${d2(m)}-05`, 'RAAST FROM TENANT RENT FLAT 4B', 45000, 0);
+    if (i % 2 === 1) add(`${y}-${d2(m)}-15`, 'PAYONEER INC CLIENT PAYOUT', 150000, 0);
+    if (i % 3 === 2) add(`${y}-${d2(m)}-30`, 'PROFIT ON SAVINGS ACCOUNT', 20000, 0);
+    if (m === 9 || m === 1 || m === 5) add(`${y}-${d2(m)}-10`, 'SCHOOL FEES TERM PAYMENT', 0, 150000);
+    if (m === 11 || m === 6) add(`${y}-${d2(m)}-12`, 'K-ELECTRIC BILL PAYMENT', 0, 38000);
+  });
+  add('2025-12-08', 'IBFT FROM M KHAN', 500000, 0);
+  add('2026-02-18', 'ZAKAT DEDUCTION 1ST RAMADAN', 0, 60000);
+  add('2026-03-12', 'IBFT TO KARWAN WELFARE TRUST DONATION', 0, 100000);
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  rows.forEach((r, i) => (r.id = i));
+  return rows;
+}
+
+function bankTotals(bank) {
+  const t = {};
+  Object.keys(CATS).forEach(k => (t[k] = { n: 0, credit: 0, debit: 0, conf: 0 }));
+  bank.forEach(r => { const x = t[r.cat] || t.other; x.n++; x.credit += r.credit; x.debit += r.debit; x.conf += r.conf; });
+  Object.values(t).forEach(x => { x.conf = x.n ? x.conf / x.n : 0; });
+  return t;
+}
+
+/* ---------- CSV import (real parsing) ---------- */
+function parseCSV(txt) {
+  const out = [];
+  txt.split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    const cells = []; let cur = '', q = false;
+    for (const ch of line) {
+      if (ch === '"') q = !q;
+      else if (ch === ',' && !q) { cells.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    cells.push(cur.trim());
+    out.push(cells);
+  });
+  return out;
+}
+function importBank(txt) {
+  const rows = parseCSV(txt);
+  if (rows.length < 2) return { error: 'The file has no data rows.' };
+  const head = rows[0].map(h => h.toLowerCase());
+  const find = re => head.findIndex(h => re.test(h));
+  const iDate = find(/date/), iDesc = find(/desc|narr|detail|particular|remark/);
+  const iDeb = find(/debit|withdraw|\bdr\b/), iCred = find(/credit|deposit|\bcr\b/), iAmt = find(/^amount/);
+  if (iDesc < 0 || (iDeb < 0 && iCred < 0 && iAmt < 0)) return { error: 'Could not find description and amount columns. Expected headers like Date, Description, Debit, Credit.' };
+  const num = s => +(String(s || '').replace(/[^0-9.\-]/g, '')) || 0;
+  const bank = rows.slice(1).map((r, i) => {
+    let credit = iCred >= 0 ? num(r[iCred]) : 0, debit = iDeb >= 0 ? num(r[iDeb]) : 0;
+    if (iAmt >= 0 && !credit && !debit) { const a = num(r[iAmt]); if (a >= 0) credit = a; else debit = -a; }
+    const desc = r[iDesc] || '';
+    const c = classifyTxn(desc, credit, debit);
+    return { id: i, date: iDate >= 0 ? r[iDate] : '', desc, credit, debit, cat: c.cat, conf: c.conf, confirmed: false };
+  }).filter(r => r.credit || r.debit);
+  return { bank };
+}
+
+/* ---------- documents (simulated OCR text, real field extraction) ---------- */
+const NUMRE = '([0-9OoSIlB,]+)';
+const DOCS = [
+  { id: 'd1', name: 'Salary certificate TY2026', kind: 'PDF', pages: 1,
+    text: 'ORBIT SOFTWARE (PVT) LTD\nSALARY AND TAX DEDUCTION CERTIFICATE\nTax Year 2026 (1 Jul 2025 to 30 Jun 2026)\nEmployee: ZARA KHAN\nGross Salary (annual): Rs. 3,420,000\nIncome Tax Deducted u/s 149: Rs. 412,000',
+    fields: [
+      { k: 'salary', label: 'Gross annual salary', re: new RegExp('Gross Salary[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.97 },
+      { k: 'whtSalary', label: 'Tax deducted by employer', re: new RegExp('Tax Deducted[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.97 }
+    ] },
+  { id: 'd2', name: 'Bank statement Jul 2025 to Jun 2026', kind: 'CSV', pages: 4,
+    text: 'SAMPLE BANK LTD  ACCOUNT ENDING 4821\nSTATEMENT 01-07-2025 TO 30-06-2026\n(transactions are classified in the table below)',
+    fields: [ { k: 'profitOnDebt', label: 'Profit on savings', fn: S => { const t = bankTotals(S.bank).profit; return { value: t.credit, conf: t.n ? t.conf : 0.5 }; } } ] },
+  { id: 'd3', name: 'Tenancy agreement and rent receipts', kind: 'Scan', pages: 3,
+    text: 'TENANCY AGREEMENT\nProperty: Flat 4B, Block C\nMonthly Rent: Rs. 45,000\nTerm: 12 months (Jul 2025 to Jun 2026)',
+    fields: [ { k: 'rent', label: 'Rent received for the year', re: new RegExp('Monthly Rent[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.94, mult: /Term:\s*(\d+)\s*months/i } ] },
+  { id: 'd4', name: 'Zakat deduction certificate', kind: 'PDF', pages: 1,
+    text: 'SAMPLE BANK LTD\nZAKAT DEDUCTION CERTIFICATE\nDeducted on 1st Ramadan 1447\nZakat deducted: Rs. 60,000',
+    fields: [ { k: 'zakat', label: 'Zakat deducted', re: new RegExp('Zakat deducted[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 } ] },
+  { id: 'd5', name: 'Freelance earnings and expense sheet', kind: 'Scan', pages: 2,
+    text: 'PAYONEER ANNUAL EARNINGS STATEMENT\nTotal received (PKR equivalent): 900,000\n\nHANDWRITTEN EXPENSE SHEET\nInternet 60,000  Software 45,000  Co-working 45,000\nTOTAL EXPENSES: 15O,OOO',
+    fields: [
+      { k: 'bizReceipts', label: 'Freelance receipts', re: new RegExp('Total received[^\\n]*?:\\s*' + NUMRE, 'i'), base: 0.95 },
+      { k: 'bizExpenses', label: 'Business expenses', re: new RegExp('TOTAL EXPENSES:\\s*' + NUMRE, 'i'), base: 0.95 }
+    ] },
+  { id: 'd6', name: 'Donation receipt', kind: 'Photo', pages: 1,
+    text: 'KARWAN WELFARE TRUST\nReceipt No. 2291   Date: 12 March 2026\nAmount received: Rs. 1OO,OOO\nApproval status of donee: not printed on receipt',
+    fields: [ { k: 'donation', label: 'Donation paid', re: new RegExp('Amount received[^\\n]*?Rs\\.?\\s*' + NUMRE, 'i'), base: 0.95 } ] }
+];
+
+function extractDoc(S, doc) {
+  return doc.fields.map(f => {
+    if (f.fn) { const r = f.fn(S); return { k: f.k, label: f.label, value: r.value, conf: r.conf, fixes: 0 }; }
+    const m = doc.text.match(f.re);
+    if (!m) return { k: f.k, label: f.label, value: 0, conf: 0.3, fixes: 0, missing: true };
+    const n = ocrNum(m[1]);
+    let value = n.value;
+    if (f.mult) { const mm = doc.text.match(f.mult); if (mm) value *= +mm[1]; }
+    return { k: f.k, label: f.label, value, conf: Math.max(0.4, f.base - 0.06 * n.fixes), fixes: n.fixes };
+  });
+}
+function applyDoc(S, doc) {
+  const res = extractDoc(S, doc);
+  res.forEach(f => { S.p[f.k] = f.value; S.meta[f.k] = { conf: f.conf, src: doc.name }; });
+  S.docState[doc.id] = { status: 'done', fields: res };
+  return res;
+}
+
+/* ---------- validation engine ---------- */
+function runChecks(S) {
+  const p = S.p, c = compute(p), w = wealthCalc(p, c), bt = bankTotals(S.bank), out = [];
+  const add = (id, title, status, detail, extra) => out.push(Object.assign({ id, title, status, detail }, extra || {}));
+  const near = (a, b, t) => Math.abs(a - b) <= Math.max(1, t * Math.max(a, b));
+  const pending = DOCS.filter(d => S.docState[d.id].status !== 'done');
+  if (pending.length) add('docs', 'Documents waiting for extraction', 'warn', `${pending.length} of ${DOCS.length} documents have not been read yet: ${pending.map(d => d.name).join(', ')}.`, { go: 'documents', conf: 1 });
+  else add('docs', 'All documents read', 'pass', 'Every uploaded document has been extracted and mapped to the return.', { conf: 1 });
+
+  const slabSal = taxOn(SLABS[p.ty].salaried, p.salary).tax;
+  if (p.salary > 0) {
+    if (near(slabSal, p.whtSalary, 0.01)) add('wht', 'Employer tax matches the salary slab', 'pass', `Tax deducted ${rs(p.whtSalary)} equals the salaried-slab tax on ${rs(p.salary)}.`, { conf: 0.97 });
+    else add('wht', 'Employer tax differs from the salary slab', 'warn', `Expected about ${rs(slabSal)} on salary alone but the certificate shows ${rs(p.whtSalary)}.`, { conf: 0.8, ask: 'Employer tax does not match the salary slab' });
+  }
+  const salNet = bt.salary.credit;
+  if (p.salary > 0 && bt.salary.n) {
+    if (near(salNet, p.salary - p.whtSalary, 0.05)) add('salbank', 'Bank salary credits match the certificate', 'pass', `Salary credits of ${rs(salNet)} agree with gross less tax (${rs(p.salary - p.whtSalary)}).`, { conf: 0.95 });
+    else add('salbank', 'Bank salary credits do not match the certificate', 'warn', `Credits ${rs(salNet)} vs ${rs(p.salary - p.whtSalary)} expected.`, { conf: 0.8, ask: 'Salary credits differ from the certificate' });
+  }
+  if (bt.rent.n) {
+    if (near(bt.rent.credit, p.rent, 0.05)) add('rent', 'Rent in bank matches rent declared', 'pass', `Bank rent credits ${rs(bt.rent.credit)} agree with declared rent ${rs(p.rent)}.`, { conf: 0.93 });
+    else add('rent', 'Rent in bank differs from rent declared', 'fail', `Bank shows ${rs(bt.rent.credit)} of rent but ${rs(p.rent)} is declared.`, { conf: 0.9, ask: 'Rent declared differs from bank credits' });
+  }
+  if (bt.freelance.credit > 0) {
+    if (p.bizReceipts >= 0.9 * bt.freelance.credit) add('free', 'Freelance deposits are declared', 'pass', `Declared receipts ${rs(p.bizReceipts)} cover bank deposits of ${rs(bt.freelance.credit)}.`, { conf: 0.9 });
+    else add('free', 'Freelance deposits not declared', 'fail', `The bank shows ${rs(bt.freelance.credit)} from freelance payers but only ${rs(p.bizReceipts)} is declared as business income.`, { conf: 0.9, go: 'documents', ask: 'Freelance deposits are not in the return' });
+  }
+  if (bt.zakat.debit > 0 || p.zakat > 0) {
+    if (near(bt.zakat.debit, p.zakat, 0.02)) add('zakat', 'Zakat is evidenced', 'pass', `Zakat of ${rs(p.zakat)} appears in both the certificate and the bank statement.`, { conf: 0.95 });
+    else add('zakat', 'Zakat amounts differ', 'warn', `Declared ${rs(p.zakat)}, bank debit ${rs(bt.zakat.debit)}.`, { conf: 0.8 });
+  }
+  if (p.donation > 0 || bt.donation.debit > 0) {
+    if (!near(bt.donation.debit, p.donation, 0.02)) add('don', 'Donation amount differs from the bank', 'warn', `Declared ${rs(p.donation)}, bank debit ${rs(bt.donation.debit)}.`, { conf: 0.75 });
+    else add('don', 'Donation credit needs donee approval', 'warn', 'The receipt does not show that the trust is an approved donee. The tax credit is allowed only for approved organisations. The prototype cannot look this up.', { conf: S.meta.donation ? S.meta.donation.conf : 0.7, ask: 'Please confirm the donee is an approved organisation' });
+  }
+  const unclear = S.bank.filter(r => r.cat === 'unclear' && !r.confirmed);
+  unclear.forEach(r => add('unc' + r.id, 'Large credit with no clear source', 'warn', `${r.date}: ${r.desc} for ${rs(r.credit)}. Was it a gift, a loan or income? The answer changes the Wealth Statement.`, { conf: r.conf, txn: r.id, ask: 'Large transfer of ' + rs(r.credit) + ' with unknown source' }));
+  if (c.taxable > 0 && c.share > 0.68 && c.share < 0.82) add('share', 'Salary share is close to the 75% line', c.salaried ? 'warn' : 'warn', `Salary is ${pc(c.share, 1)} of taxable income. At 75% or more the lower salaried slabs apply. Small changes in other income move you across the line.`, { conf: 0.9, go: 'whatif' });
+  if (w.ok) add('wealth', 'Wealth Statement reconciles', 'pass', `Net worth moved by ${rs(w.actual)}. Declared money explains it within ${rs(TOL)} (difference ${rs(w.gap)}).`, { conf: 0.9 });
+  else add('wealth', 'Wealth Statement does not reconcile', 'fail', `Net worth rose by ${rs(w.actual)} but declared income, gifts and spending explain ${rs(w.expected)}. Unexplained: ${rs(w.gap)}.`, { conf: 0.85, go: 'wealth', ask: 'Wealth Statement shows an unexplained difference of ' + rs(w.gap) });
+  if (c.balance > 0) add('bal', 'Tax is still payable', 'warn', `After withholding and advance tax, ${rs(c.balance)} remains to be paid before filing.`, { conf: 0.9, go: 'return' });
+  else add('bal', 'Withholding covers the tax', 'pass', c.balance < 0 ? `A refund of ${rs(-c.balance)} is claimable.` : 'No balance is due.', { conf: 0.9 });
+  return out;
+}
+
+function readiness(S, checks) {
+  const docsDone = DOCS.filter(d => S.docState[d.id].status === 'done').length;
+  const lowFields = Object.keys(S.meta).filter(k => S.meta[k].conf < 0.8 && !S.meta[k].confirmed).length;
+  const c = compute(S.p), w = wealthCalc(S.p, c);
+  const passRatio = checks.filter(x => x.status === 'pass').length / Math.max(1, checks.length);
+  const openEsc = S.esc.filter(e => e.mine && e.status === 'open').length;
+  const parts = [
+    { k: 'Documents read', max: 25, v: 25 * docsDone / DOCS.length, tip: 'Run extraction on the remaining documents.' },
+    { k: 'Low-confidence values confirmed', max: 15, v: 15 * (1 - Math.min(1, lowFields / 3)), tip: 'Confirm or correct values marked Medium or Low.' },
+    { k: 'Wealth Statement reconciled', max: 25, v: w.ok ? 25 : 25 * Math.max(0, 1 - Math.abs(w.gap) / 1000000), tip: 'Explain the unexplained difference.' },
+    { k: 'Validation checks passed', max: 20, v: 20 * passRatio, tip: 'Resolve the failed and warned checks.' },
+    { k: 'Professional questions answered', max: 5, v: openEsc ? 0 : 5, tip: 'Wait for the professional reply.' },
+    { k: 'Taxpayer review signed off', max: 10, v: S.signoff.reviewed ? 10 : 0, tip: 'Review the return and confirm it.' }
+  ];
+  const score = Math.round(parts.reduce((a, x) => a + x.v, 0));
+  return { score, parts };
+}
+/*END ENGINE*/
+/*STATE*/
+function makeState() {
+  const S = {
+    role: 'taxpayer', view: 'assistant', proView: 'clients',
+    p: { ty: 2026, salary: 0, whtSalary: 0, rent: 0, bizReceipts: 0, bizExpenses: 0, profitOnDebt: 0, zakat: 0, donation: 0,
+         advance: 25000, expenses: 2600000, gifts: [],
+         wealth: [
+           { name: 'House (cost)', type: 'asset', open: 18000000, close: 18000000 },
+           { name: 'Vehicle', type: 'asset', open: 3500000, close: 3500000 },
+           { name: 'Bank balances', type: 'asset', open: 1200000, close: 2420000 },
+           { name: 'Mutual funds', type: 'asset', open: 600000, close: 1000000 },
+           { name: 'Cash in hand', type: 'asset', open: 150000, close: 150000 },
+           { name: 'Car loan', type: 'liab', open: 800000, close: 340000 }
+         ] },
+    meta: { expenses: { conf: 0.6, src: 'Your estimate' }, advance: { conf: 0.85, src: 'Your entry' } },
+    bank: genSampleBank(),
+    docState: {},
+    chat: [], esc: [], signoff: { reviewed: false },
+    a11y: { text: 'normal', contrast: 'normal' },
+    drawer: null, glossQ: '', wi: null, copilot: [], proSel: null
+  };
+  DOCS.forEach(d => (S.docState[d.id] = { status: 'pending', fields: [] }));
+  ['d1', 'd2', 'd3', 'd4'].forEach(id => applyDoc(S, DOCS.find(d => d.id === id)));
+  return S;
+}
+/*END STATE*/
+/*UI1*/
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const strip = h => String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+let S = makeState();
+let TODAY = new Date();
+
+const NAV_T = [['assistant','Assistant'],['documents','Documents'],['return','Tax computation'],['wealth','Wealth Statement'],['checks','Checks'],['readiness','Readiness and timeline'],['whatif','What-if simulator'],['review','Review and export'],['glossary','FBR language guide']];
+const NAV_P = [['clients','Clients'],['queue','Review queue'],['copilot','Research copilot'],['glossary','FBR language guide']];
+const FIELDS = [['salary','Annual salary'],['whtSalary','Tax deducted by employer'],['rent','Rent income'],['bizReceipts','Freelance receipts'],['bizExpenses','Business expenses'],['profitOnDebt','Bank profit (final tax)'],['zakat','Zakat paid'],['donation','Donations'],['advance','Advance tax paid'],['expenses','Personal expenses (year)']];
+
+const ICO = {
+  pass: '<svg class="ic pass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-label="Passed" role="img"><circle cx="12" cy="12" r="9.5"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>',
+  warn: '<svg class="ic warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-label="Needs attention" role="img"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+  fail: '<svg class="ic fail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-label="Failed" role="img"><circle cx="12" cy="12" r="9.5"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>'
+};
+
+function confBadge(c) {
+  const l = confLevel(c);
+  return `<span class="conf ${l}" aria-hidden="true"><i style="width:${Math.round(c * 100)}%"></i></span><span class="cw ${l}">${confWord(c)} ${Math.round(c * 100)}%</span>`;
+}
+function derive() {
+  const c = compute(S.p), w = wealthCalc(S.p, c), checks = runChecks(S), rd = readiness(S, checks);
+  return { c, w, checks, rd };
+}
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2400);
+}
+async function copyText(txt, okMsg) {
+  try { await navigator.clipboard.writeText(txt); toast(okMsg); }
+  catch (e) { toast('Copy was blocked here. Select the text and copy it manually.'); }
+}
+
+/* ---------- glossary ---------- */
+const GLOSS = [
+  ['NTN','National Tax Number','The number FBR uses to identify you as a taxpayer. You need it to file a return.','Appears at the top of your return.'],
+  ['ATL','Active Taxpayers List','The FBR list of people who filed their return on time. Being on it lowers the tax withheld on bank transactions, property deals and vehicle purchases.','Filing on time keeps you on the list.'],
+  ['Tax year','Tax Year','The 12 months from 1 July to 30 June, named after the year it ends. Tax year 2026 covers July 2025 to June 2026.','This prototype prepares tax year 2026.'],
+  ['IRIS','IRIS portal','The FBR website where returns are filed. This prototype prepares figures only. You submit in IRIS.','Used in the final step after review.'],
+  ['Taxable income','Taxable income','Your income after allowed deductions such as Zakat. The slab rates apply to this number.','Rs 4,650,000 in the sample return.'],
+  ['Salaried individual','Salaried individual','You are taxed at the lower salaried slabs when your salary is at least 75% of your taxable income. Otherwise the non-salaried slabs apply.','Decides your regime in the return.'],
+  ['Withholding tax','Withholding tax','Tax taken before you receive money, for example by your employer or bank. It counts as tax you have already paid.','Employer tax of Rs 412,000 in the sample.'],
+  ['Advance tax','Advance tax','Tax you pay during the year in instalments, usually when you have business or rental income. It is credited against your final tax.','Entered under taxes paid.'],
+  ['Final tax','Final tax regime','Some income, such as bank profit, is taxed once at a fixed rate and is not added to your normal taxable income.','Bank profit is taxed at 15% here.'],
+  ['Deductible allowance','Deductible allowance','An amount you subtract from income before applying slab rates. Zakat paid is one.','Zakat reduces taxable income.'],
+  ['Tax credit','Tax credit','An amount subtracted from the tax itself, not from income. A donation to an approved organisation gives a credit.','Donation credit in the computation.'],
+  ['Wealth Statement','Wealth Statement','A list of what you own and owe at the start and end of the tax year. FBR checks that your wealth growth matches your declared income.','Has its own screen here.'],
+  ['Wealth reconciliation','Wealth reconciliation','The check that growth in net worth equals income plus gifts, less tax, Zakat, donations and spending.','Shown as the difference line.'],
+  ['Surcharge','Surcharge','An extra percentage added to tax for very high incomes. Reports on the 2026-27 budget say it was removed for salaried individuals from tax year 2027.','Applies above Rs 10 million.'],
+  ['Profit on debt','Profit on debt','The FBR term for interest or profit earned on savings accounts and certificates.','Bank profit of Rs 80,000.'],
+  ['Revised return','Revised return','A corrected return you can file after the original if you find a mistake, within the time limits in the law.','Ask a professional before using it.'],
+  ['Section 149','Section 149','The part of the Income Tax Ordinance that makes employers deduct tax from salaries each month.','Printed on your salary certificate.']
+];
+
+/* ---------- research knowledge base for the professional copilot ---------- */
+const KB = [
+  { k: ['salaried','75','slab','regime','non-salaried','non salaried'], a: 'Salaried slabs apply when salary is 75% or more of taxable income. Below that, the higher non-salaried slabs apply to the whole taxable income, so the cliff can cost a lot. Check the share before advising on side income.', ref: 'Income Tax Ordinance 2001, First Schedule, Part I, Division I' },
+  { k: ['zakat'], a: 'Zakat paid under the Zakat and Ushr framework is a deductible allowance. It is subtracted from total income before the slab rates apply. Keep the bank deduction certificate.', ref: 'Income Tax Ordinance 2001, section 60 (deductible allowances)' },
+  { k: ['donation','donee','charity','approved','credit'], a: 'A donation to an approved organisation earns a tax credit, not a deduction. The credit is the average tax rate applied to the donation, and the eligible donation is capped at 30% of taxable income. Confirm the donee is on the approved list.', ref: 'Income Tax Ordinance 2001, section 61' },
+  { k: ['wealth','statement','reconcile','reconciliation','gap','unexplained'], a: 'An individual files a Wealth Statement with the return. Growth in net worth should be explained by declared income, exempt receipts such as gifts, and less tax and spending. Unexplained growth invites an audit query.', ref: 'Income Tax Ordinance 2001, section 116' },
+  { k: ['gift','gifts','transfer','loan','family'], a: 'A gift from a relative is not taxable income but should be declared in the Wealth Statement and traced through banking channels. Keep a gift letter. A loan instead raises a liability, so it also reconciles, but needs a repayment story.', ref: 'Practice note, section 116 reconciliation' },
+  { k: ['return','file','filing','deadline','due','late','penalty'], a: 'Individuals typically file by 30 September following the tax year, in IRIS. Late filing can attract a default surcharge and removal from the Active Taxpayers List. Check whether FBR has announced an extension.', ref: 'Income Tax Ordinance 2001, section 114 and notifications' },
+  { k: ['profit','savings','bank','interest','debt'], a: 'Profit on bank deposits is generally taxed as a final tax for filers, at 15% for typical individual amounts, so it stays outside the normal slab computation. Higher bands apply to large amounts.', ref: 'Income Tax Ordinance 2001, section 7B' },
+  { k: ['freelance','export','it','psbe','pseb','0.25','concessional'], a: 'Budget 2026-27 coverage reports that the 0.25% final regime on IT export earnings continues until 30 June 2029. Eligibility depends on registration and receiving proceeds through banking channels, so confirm before moving a client onto it.', ref: 'Finance Act 2026 coverage; verify against the enacted text' },
+  { k: ['rent','property','rental','tenant'], a: 'Rental income of an individual is chargeable under income from property with its own rate schedule. The prototype adds rent to normal-rate income as a simplification, so a professional must apply the property rules.', ref: 'Income Tax Ordinance 2001, section 15 and First Schedule' },
+  { k: ['surcharge','tax year 2027','budget','2026-27','finance act'], a: 'For tax year 2027 the salaried slabs have eight bands, the top 35% rate starts at Rs 7 million, and the 9% surcharge on salaried individuals is withdrawn. Non-salaried slabs are treated as unchanged in this prototype.', ref: 'Finance Act 2026 coverage; verify against the enacted text' }
+];
+
+/* ---------- explanations (Explain-Why engine) ---------- */
+function slabText(table, idx) {
+  const r = table[idx], nxt = table[idx + 1];
+  return `${rs(r[0])} to ${nxt ? rs(nxt[0]) : 'no upper limit'}: ${rs(r[1])} + ${pc(r[2])} of the part above ${rs(r[0])}`;
+}
+function explain(key) {
+  const D = derive(), c = D.c, p = S.p, w = D.w, T = SLABS[p.ty];
+  let title = '', steps = [], refs = [], conf = 0.9;
+  if (key === 'regime') {
+    title = 'Why this slab table applies';
+    const salTax = taxOn(T.salaried, c.taxable).tax, nonTax = taxOn(T.non, c.taxable).tax;
+    const headroom = p.salary / 0.75 - p.salary + c.zakat - p.rent - c.biz;
+    steps = [
+      ['Add income by head', `Salary ${rs(p.salary)} + rent ${rs(p.rent)} + business ${rs(c.biz)} (receipts ${rs(p.bizReceipts)} less expenses ${rs(p.bizExpenses)}) = ${rs(c.total)}`],
+      ['Subtract Zakat', `${rs(c.total)} - ${rs(c.zakat)} = taxable income ${rs(c.taxable)}`],
+      ['Work out the salary share', `${rs(p.salary)} / ${rs(c.taxable)} = ${pc(c.share, 1)}`],
+      ['Apply the 75% rule', c.salaried ? 'Share is 75% or more, so the salaried slabs apply.' : 'Share is below 75%, so the non-salaried slabs apply to all taxable income.'],
+      ['See what the other table would give', `Salaried slabs: ${rs(salTax)}. Non-salaried slabs: ${rs(nonTax)}. Difference: ${rs(Math.abs(salTax - nonTax))}.`],
+      ['Room before the line moves', headroom >= 0 ? `Other income can rise by ${rs(headroom)} before the share drops under 75%.` : `Other income would have to fall by ${rs(-headroom)} for the salaried slabs to apply.`]
+    ];
+    refs = ['Income Tax Ordinance 2001, First Schedule, Part I, Division I'];
+  } else if (key === 'tax') {
+    title = 'How the normal tax is calculated';
+    steps = [
+      ['Find the slab for taxable income', slabText(c.table, c.slab.idx)],
+      ['Compute the tax', `${rs(c.slab.slab[1])} + ${pc(c.slab.slab[2])} x ${rs(c.taxable - c.slab.slab[0])} = ${rs(c.gross)}`],
+      ['Surcharge', c.sur ? `Taxable income is above Rs 10,000,000, so ${pc(c.surRate)} of tax is added: ${rs(c.sur)}.` : 'No surcharge applies at this income.'],
+      ['Subtract credits', `Donation credit ${rs(c.credit)}`],
+      ['Net normal tax', `${rs(c.gross)} + ${rs(c.sur)} - ${rs(c.credit)} = ${rs(c.net)}`]
+    ];
+    refs = ['Income Tax Ordinance 2001, First Schedule, Part I, Division I', 'Rates for tax year ' + p.ty + ' as reported after the Finance Act 2026; verify on the FBR site'];
+  } else if (key === 'credit') {
+    title = 'How the donation credit is calculated';
+    conf = S.meta.donation ? S.meta.donation.conf : 0.7;
+    steps = [
+      ['Donation paid', `${rs(p.donation)} (confidence ${Math.round(conf * 100)}%)`],
+      ['Cap at 30% of taxable income', `30% x ${rs(c.taxable)} = ${rs(0.3 * c.taxable)}. Eligible: ${rs(c.donEligible)}.`],
+      ['Credit = tax x eligible donation / taxable income', `${rs(c.gross)} x ${rs(c.donEligible)} / ${rs(c.taxable)} = ${rs(c.credit)}`],
+      ['Condition', 'The receipt does not show that the trust is an approved donee. The credit is at risk until that is confirmed.']
+    ];
+    refs = ['Income Tax Ordinance 2001, section 61'];
+  } else if (key === 'final') {
+    title = 'Why bank profit is taxed separately';
+    steps = [
+      ['Bank profit for the year', rs(p.profitOnDebt)],
+      ['Final tax at 15%', `15% x ${rs(p.profitOnDebt)} = ${rs(c.finalTax)}, already deducted by the bank`],
+      ['Effect', 'This income is not added to taxable income, so it does not move your salary share or slab.']
+    ];
+    refs = ['Income Tax Ordinance 2001, section 7B'];
+  } else if (key === 'payable') {
+    title = 'How the balance is worked out';
+    steps = [
+      ['Normal tax for the year', rs(c.net)],
+      ['Tax already paid', `Employer ${rs(p.whtSalary)} + advance ${rs(p.advance)} = ${rs(c.paid)}`],
+      [c.balance > 0 ? 'Balance to pay' : 'Refund claimable', `${rs(c.net)} - ${rs(c.paid)} = ${rs(c.balance)}`],
+      ['Why the employer amount can fall short', 'Your employer deducted tax on the salaried slab. Other income can move the whole return to higher slabs, so the difference falls due when you file.']
+    ];
+    refs = ['Income Tax Ordinance 2001, section 114'];
+  } else if (key === 'gap') {
+    title = 'Why the Wealth Statement does or does not reconcile';
+    const last = w.lines.map(l => [l[0], rs(l[1])]);
+    steps = [
+      ['Net worth at start and end', `${rs(w.openNet)} to ${rs(w.closeNet)}, a change of ${rs(w.actual)}`],
+      ['What your declared money explains', last.map(l => l[0] + ' ' + l[1]).join('; ')],
+      ['Explained change', rs(w.expected)],
+      ['Difference', `${rs(w.actual)} - ${rs(w.expected)} = ${rs(w.gap)}. Tolerance is ${rs(TOL)}.`],
+      ['Common causes', w.gap > 0 ? 'Undeclared income, a gift or loan not recorded, or personal expenses entered too high.' : 'Income declared that was not received, or spending entered too low.']
+    ];
+    refs = ['Income Tax Ordinance 2001, section 116'];
+  } else if (key === 'score') {
+    title = 'How the readiness score is built';
+    steps = D.rd.parts.map(x => [x.k, `${Math.round(x.v)} of ${x.max} points. ${x.v < x.max ? x.tip : 'Complete.'}`]);
+  } else if (key === 'conf') {
+    title = 'What the confidence indicators mean';
+    conf = 1;
+    steps = [
+      ['High, 85% and above', 'The value was read cleanly and agrees with other documents.'],
+      ['Medium, 60% to 84%', 'The reader had to repair characters (for example O read as 0) or the value is your own estimate. Confirm it.'],
+      ['Low, below 60%', 'The source is unclear. The platform asks you, and can pass the item to a tax professional.'],
+      ['How it is scored', 'Each field starts from the extractor\'s base score. Every repaired character removes 6 points. Bank lines are scored by how specific the description is.']
+    ];
+  }
+  const html = `<ol>${steps.map(s => `<li><b>${s[0]}</b><div class="calc">${esc(s[1])}</div></li>`).join('')}</ol>` +
+    (refs.length ? `<div class="note"><b>Basis:</b> ${refs.map(esc).join('; ')}. References are for orientation. Verify against current law before filing.</div>` : '');
+  return { title, html, conf, key };
+}
+/*END UI1*/
+/*UI2*/
+/* ---------- actions on state ---------- */
+function setTxnCat(id, cat) {
+  const r = S.bank.find(x => x.id === id); if (!r) return;
+  S.p.gifts = S.p.gifts.filter(g => g.txn !== id);
+  S.p.wealth = S.p.wealth.filter(x => x.txn !== id);
+  r.cat = cat; r.conf = 1; r.confirmed = true;
+  if (cat === 'gift') S.p.gifts.push({ from: 'family transfer', amount: r.credit, txn: id });
+  if (cat === 'loan') S.p.wealth.push({ name: 'Loan received ' + r.date, type: 'liab', open: 0, close: r.credit, txn: id });
+  applyDoc(S, DOCS[1]);
+}
+function escalate(topic) {
+  if (S.esc.some(e => e.mine && e.topic === topic && e.status === 'open')) { toast('Already with a tax professional.'); return false; }
+  const D = derive();
+  S.esc.unshift({ id: 'e' + Date.now(), mine: true, client: 'Zara Khan (this return)', topic, status: 'open',
+    ctx: `Taxable ${rs(D.c.taxable)}, ${D.c.salaried ? 'salaried' : 'non-salaried'} slabs, balance ${rs(D.c.balance)}, Wealth Statement difference ${rs(D.w.gap)}, readiness ${D.rd.score}/100.`,
+    thread: [{ who: 'AI', t: 'Escalated with extracted figures, checks and document list attached.' }] });
+  toast('Sent to the tax professional queue.');
+  return true;
+}
+function go(view) { S.view = view; S.drawer = null; render(); window.scrollTo(0, 0); }
+
+/* ---------- chat ---------- */
+function botSay(html, o) { S.chat.push(Object.assign({ role: 'bot', html }, o || {})); }
+function userSay(t) { S.chat.push({ role: 'user', html: esc(t) }); }
+function amounts(t) {
+  const out = []; const re = /(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|lakhs?|lacs?|m|mn|million|crore)?\b/gi; let m;
+  while ((m = re.exec(t))) {
+    let v = parseFloat(m[1].replace(/,/g, '')); const u = (m[2] || '').toLowerCase();
+    if (u === 'k' || u === 'thousand') v *= 1e3; else if (/^la/.test(u)) v *= 1e5; else if (u === 'm' || u === 'mn' || u === 'million') v *= 1e6; else if (u === 'crore') v *= 1e7;
+    if (v >= 1000) out.push(v);
+  }
+  return out;
+}
+const setField = (k, v, src) => { S.p[k] = v; S.meta[k] = { conf: 0.82, src }; };
+function summaryLine(before, after) {
+  const bits = [before.net === after.net ? `Net tax unchanged at ${rs(after.net)}` : `Net tax ${rs(before.net)} to ${rs(after.net)}`];
+  if (before.salaried !== after.salaried) bits.push(`regime moved from ${before.salaried ? 'salaried' : 'non-salaried'} to ${after.salaried ? 'salaried' : 'non-salaried'} slabs`);
+  return bits.join(', ');
+}
+function respond(text) {
+  const t = text.toLowerCase();
+  const am = amounts(t), a = am[0];
+  const before = compute(S.p), wb = wealthCalc(S.p, before);
+  const monthly = /month|monthly|per month|pm\b|mahina/.test(t), annual = /annual|yearly|per year|a year|saal/.test(t);
+  const per = (v, defMonthly) => (annual ? v : monthly || (defMonthly && v < 1500000) ? v * 12 : v);
+  const unclear = S.bank.find(r => r.cat === 'unclear' && !r.confirmed);
+  const done = (msg, changes) => {
+    const af = compute(S.p), wa = wealthCalc(S.p, af);
+    const extra = ` ${summaryLine(before, af)}. Wealth Statement difference ${rs(wb.gap)} to ${rs(wa.gap)}.`;
+    botSay(msg + extra, { conf: 0.82, changes });
+  };
+  let m = t.match(/(?:open|go to|show|take me to|switch to)\s+(?:my\s+|the\s+)?(documents?|return|tax|wealth|checks?|validation|readiness|timeline|what.?if|simulator|review|export|glossary|guide)/);
+  if (m) {
+    const w = m[1], map = [[/doc/, 'documents'], [/return|tax/, 'return'], [/wealth/, 'wealth'], [/check|valid/, 'checks'], [/ready|timeline/, 'readiness'], [/what|sim/, 'whatif'], [/review|export/, 'review'], [/gloss|guide/, 'glossary']];
+    const v = map.find(x => x[0].test(w))[1];
+    botSay('Opening ' + NAV_T.find(x => x[0] === v)[1] + '.'); S.view = v; return;
+  }
+  if (/human|professional|accountant|advis[eo]r|expert|lawyer|talk to someone/.test(t)) {
+    escalate('Taxpayer asked for human help: ' + text.slice(0, 80));
+    botSay('I sent your question to a tax professional with your figures and the open checks attached. You will see their reply under Review and export.', { conf: 1 }); return;
+  }
+  if (/gift|gifted/.test(t) && !/gift tax/.test(t)) {
+    const who = (t.match(/from (?:my )?([a-z]+)/) || [])[1] || 'family';
+    const amt = a || (unclear && unclear.credit);
+    if (!amt) { botSay('How much was the gift, and who gave it?'); return; }
+    if (unclear && (!a || Math.abs(unclear.credit - a) < 1)) { setTxnCat(unclear.id, 'gift'); S.p.gifts.forEach(g => { if (g.txn === unclear.id) g.from = who; }); }
+    else S.p.gifts.push({ from: who, amount: amt });
+    done(`Recorded a gift of ${rs(amt)} from ${who}. A gift is not taxable income, but it must appear in the Wealth Statement and be traceable in the bank.`, ['Gift +' + rs(amt)]); return;
+  }
+  if (/\bloan\b|borrow/.test(t) && !/car loan/.test(t) && (a || unclear)) {
+    const amt = a || unclear.credit;
+    if (unclear && (!a || Math.abs(unclear.credit - a) < 1)) setTxnCat(unclear.id, 'loan');
+    else S.p.wealth.push({ name: 'Loan received', type: 'liab', open: 0, close: amt });
+    done(`Recorded a loan of ${rs(amt)} as a liability. It is not income. Keep the loan agreement and repayment plan.`, ['Liability +' + rs(amt)]); return;
+  }
+  if (/zakat/.test(t) && a) { setField('zakat', a, 'Your message'); done(`Zakat set to ${rs(a)}. It is deducted from income before slab rates apply.`, ['Zakat ' + rs(a)]); return; }
+  if (/donat|charity/.test(t) && a) { setField('donation', a, 'Your message'); done(`Donations set to ${rs(a)}. The credit depends on the trust being an approved donee.`, ['Donation ' + rs(a)]); return; }
+  if (/advance tax/.test(t) && a) { setField('advance', a, 'Your message'); done(`Advance tax paid set to ${rs(a)}.`, ['Advance tax ' + rs(a)]); return; }
+  if (/salary|tankhah|tankhwa|i earn/.test(t) && a && !/\bwhy\b/.test(t)) {
+    const v = per(a, true); setField('salary', v, 'Your message');
+    S.p.whtSalary = Math.round(taxOn(SLABS[S.p.ty].salaried, v).tax);
+    done(`Annual salary set to ${rs(v)}. I recalculated the employer tax on the salaried slab to ${rs(S.p.whtSalary)}. Upload the salary certificate to confirm it.`, ['Salary ' + rs(v)]); return;
+  }
+  if (/rent/.test(t) && a && /receiv|income|earn|get|tenant|collect/.test(t)) { const v = per(a, true); setField('rent', v, 'Your message'); done(`Rent income set to ${rs(v)} for the year.`, ['Rent ' + rs(v)]); return; }
+  if (/freelanc|upwork|fiverr|payoneer|client/.test(t) && a) { const v = per(a, false); setField('bizReceipts', v, 'Your message'); done(`Freelance receipts set to ${rs(v)}. Business expenses stay at ${rs(S.p.bizExpenses)} until you add the expense sheet.`, ['Freelance receipts ' + rs(v)]); return; }
+  if (/expens|spend|spending|kharch/.test(t) && a) { const v = per(a, true); setField('expenses', v, 'Your message'); done(`Personal expenses set to ${rs(v)} for the year. This drives the Wealth Statement check.`, ['Expenses ' + rs(v)]); return; }
+  const wb2 = n => new RegExp('\\b' + n.toLowerCase().replace(/[^a-z0-9 ]/g, '') + '\\b').test(t.replace(/[^a-z0-9 ]/g, ''));
+  const g = /what is|what's|what does|meaning|define|explain|kya hai/.test(t) && GLOSS.find(x => wb2(x[0]) || wb2(x[1]));
+  if (g) { botSay(`<b>${esc(g[1])}.</b> ${esc(g[2])} <span class="note">${esc(g[3])}</span>`, { conf: 0.95 }); return; }
+  if (/why|explain/.test(t) && /(regime|non.?salaried|slab|rate|tax|so high|higher)/.test(t)) {
+    botSay(`${before.salaried ? 'You are on the salaried slabs.' : 'You are on the non-salaried slabs.'} Salary is ${pc(before.share, 1)} of taxable income and the line is 75%. <button class="btn sm" data-act="explain" data-v="regime">Explain step by step</button>`, { conf: 0.9 }); return;
+  }
+  if (/what.?if|simulat|scenario|reduce my tax|save tax/.test(t)) { botSay('Opening the what-if simulator. Move the sliders and watch the regime line.'); S.view = 'whatif'; return; }
+  if (/score|ready|readiness/.test(t)) { const D = derive(); botSay(`Your readiness score is ${D.rd.score} out of 100. Biggest gap: ${D.rd.parts.slice().sort((x, y) => (y.max - y.v) - (x.max - x.v))[0].tip} <button class="btn sm" data-act="go" data-v="readiness">Open readiness</button>`, { conf: 0.9 }); return; }
+  if (/deadline|due date|when.*(file|due)|last date/.test(t)) { const d = dueInfo(); botSay(d.msg, { conf: 0.8 }); return; }
+  if (/wealth|reconcil|difference|gap|unexplained/.test(t)) { botSay(`Net worth rose by ${rs(wb.actual)} and your declared money explains ${rs(wb.expected)}. Difference: ${rs(wb.gap)} (${wb.ok ? 'within' : 'outside'} the Rs 50,000 tolerance). <button class="btn sm" data-act="explain" data-v="gap">Explain</button>`, { conf: 0.88 }); return; }
+  if (/how much|tax|owe|payable|refund|liability|pay/.test(t)) { botSay(`Normal tax is ${rs(before.net)} on taxable income ${rs(before.taxable)}. After ${rs(before.paid)} already paid, ${before.balance >= 0 ? 'you owe ' + rs(before.balance) : 'a refund of ' + rs(-before.balance) + ' is due'}. Bank profit carries a separate final tax of ${rs(before.finalTax)}. <button class="btn sm" data-act="explain" data-v="tax">Explain</button>`, { conf: 0.88 }); return; }
+  if (/^(hi|hello|hey|salam|assalam|aoa)/.test(t)) { botSay('Hello. Tell me about your income in plain words, for example "I got a gift of 500k from my father", or open a screen from the list on the left.'); return; }
+  botSay('I can record income, Zakat, donations, gifts and loans from plain sentences, explain any number, look up tax terms, and pass a question to a tax professional. Try one of the suggestions below.', { conf: 0.6 });
+}
+function dueInfo() {
+  const due = new Date(S.p.ty + '-09-30T23:59:59'), days = Math.ceil((due - TODAY) / 86400000);
+  const msg = days >= 0
+    ? `The usual filing date for tax year ${S.p.ty} is 30 September ${S.p.ty}, which is ${days} days away. Check FBR notices for any extension.`
+    : `The usual filing date for tax year ${S.p.ty} was 30 September ${S.p.ty}, ${-days} days ago. If you have not filed, do so as soon as the return is reviewed, and check FBR notices for any extension. Late filing can bring a penalty and removal from the Active Taxpayers List.`;
+  return { days, msg, due };
+}
+
+/* ---------- document extraction animation ---------- */
+const STEPS = ['Clean image', 'Read text (OCR)', 'Extract fields', 'Classify', 'Score confidence'];
+function runExtraction(id) {
+  const st = S.docState[id]; if (st.status === 'running') return;
+  const before = compute(S.p);
+  st.status = 'running'; st.step = 0; render();
+  const tick = () => {
+    st.step++;
+    if (st.step >= STEPS.length) {
+      const doc = DOCS.find(d => d.id === id); applyDoc(S, doc);
+      const after = compute(S.p), res = S.docState[id].fields;
+      const low = res.filter(f => f.conf < 0.8);
+      botSay(`Read <b>${esc(doc.name)}</b>: ${res.map(f => esc(f.label) + ' ' + rs(f.value)).join(', ')}. ${low.length ? 'I repaired characters in ' + low.map(f => esc(f.label)).join(', ') + ', so please confirm.' : ''} ${summaryLine(before, after)}.`, { conf: Math.min(...res.map(f => f.conf)), changes: res.map(f => f.label + ' ' + rs(f.value)) });
+      render();
+    } else { render(); setTimeout(tick, 380); }
+  };
+  setTimeout(tick, 380);
+}
+/*END UI2*/
+/*UI3*/
+const fmtDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const vhead = (h, p) => `<div class="vhead"><h1>${h}</h1><p>${p}</p></div>`;
+const whyBtn = k => `<button class="btn sm quiet" data-act="explain" data-v="${k}">Why?</button>`;
+
+/* ---------- Assistant ---------- */
+function viewAssistant(D) {
+  const msgs = S.chat.map((m, i) => m.role === 'user'
+    ? `<div class="msg user">${m.html}</div>`
+    : `<div class="msg bot"><div>${m.html}</div>${(m.changes || []).length ? `<div>${m.changes.map(c => `<span class="chg">${esc(c)}</span>`).join('')}</div>` : ''}
+        <div class="tools">${m.conf != null ? confBadge(m.conf) : ''}<button class="btn sm quiet" data-act="speak" data-i="${i}" aria-label="Read this reply aloud">Read aloud</button></div></div>`).join('');
+  const chips = [];
+  if (S.bank.some(r => r.cat === 'unclear' && !r.confirmed)) chips.push('It was a gift of 500k from my father', 'It was a loan of 500k from my brother');
+  chips.push(compute(S.p).salaried ? 'Which slabs apply to me and why?' : 'Why am I on non-salaried slabs?', 'How much tax do I owe?', 'What is ATL?', 'I paid zakat of 80k', 'I want to talk to a tax professional');
+  const rows = FIELDS.map(([k, l]) => {
+    const m = S.meta[k], v = S.p[k];
+    return `<tr><td>${l}</td><td class="num">${rs(v)}</td><td class="small">${m ? esc(m.src) : '<span class="muted">not provided</span>'}${m ? '<br>' + confBadge(m.conf) : ''}${m && m.conf < 0.8 && !m.confirmed ? ` <button class="btn sm quiet" data-act="confirm" data-v="${k}">Confirm</button>` : ''}</td></tr>`;
+  }).join('');
+  const gifts = S.p.gifts.reduce((a, g) => a + g.amount, 0);
+  return `${vhead('Conversational assistant', 'Describe your finances in plain English. The assistant records what you say, explains it and shows how confident it is. Voice reading is built in.')}
+  <div class="assist">
+    <section class="card chat" aria-label="Conversation">
+      <div class="msgs" id="msgs" aria-live="polite">${msgs}</div>
+      <div class="chips">${chips.map(c => `<button class="chip" data-act="say" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+      <form class="composer" id="chatForm">
+        <label class="sr" for="chatIn" style="position:absolute;left:-9999px">Message</label>
+        <input type="text" id="chatIn" placeholder="Type or speak. Press / to focus." autocomplete="off">
+        <button type="button" class="btn quiet" data-act="mic" aria-label="Speak your message">Speak</button>
+        <button type="submit" class="btn primary">Send</button>
+      </form>
+    </section>
+    <aside class="card" aria-label="What the assistant knows">
+      <h2>What I know so far</h2>
+      <div class="tw"><table><thead><tr><th>Item</th><th class="r">Value</th><th>Source and confidence</th></tr></thead><tbody>${rows}
+        <tr><td>Gifts received</td><td class="num">${rs(gifts)}</td><td class="small">${gifts ? 'Your message' : '<span class="muted">none</span>'}</td></tr></tbody></table></div>
+      <button class="btn sm quiet" data-act="explain" data-v="conf">How is confidence scored?</button>
+    </aside>
+  </div>`;
+}
+
+/* ---------- Documents ---------- */
+function docCard(d) {
+  const st = S.docState[d.id];
+  let body;
+  if (st.status === 'running') body = `<div class="pipe" aria-live="polite">${STEPS.map((s, i) => `<span class="${i < st.step ? 'done' : i === st.step ? 'on' : ''}">${s}</span>`).join('')}</div>`;
+  else if (st.status === 'done') body = `<div class="tw"><table><thead><tr><th>Field</th><th class="r">Value</th><th>Confidence</th></tr></thead><tbody>${st.fields.map(f => `<tr><td>${esc(f.label)}${f.fixes ? `<br><span class="note">${f.fixes} characters repaired</span>` : ''}</td><td class="num">${rs(f.value)}</td><td>${confBadge(f.conf)}</td></tr>`).join('')}</tbody></table></div>`;
+  else body = `<button class="btn primary" data-act="extract" data-v="${d.id}">Run AI extraction</button>`;
+  return `<article class="card"><div class="row" style="justify-content:space-between"><div><h3>${esc(d.name)}</h3><span class="note">${d.kind}, ${d.pages} page${d.pages > 1 ? 's' : ''}</span></div>
+    <span class="pill ${st.status === 'done' ? 'pass' : st.status === 'running' ? 'info' : 'warn'}">${st.status === 'done' ? 'Read' : st.status === 'running' ? 'Reading' : 'Waiting'}</span></div>
+    ${body}<details><summary>Show OCR text</summary><pre>${esc(d.text)}</pre></details></article>`;
+}
+function viewDocuments(D) {
+  const bt = bankTotals(S.bank);
+  const sumRows = Object.keys(CATS).filter(k => bt[k].n).map(k => `<tr><td>${CATS[k]}</td><td class="num">${bt[k].n}</td><td class="num">${bt[k].credit ? rs(bt[k].credit) : ''}</td><td class="num">${bt[k].debit ? rs(bt[k].debit) : ''}</td><td>${confBadge(bt[k].conf)}</td></tr>`).join('');
+  const opts = c => Object.keys(CATS).map(k => `<option value="${k}" ${k === c ? 'selected' : ''}>${CATS[k]}</option>`).join('');
+  const txRows = S.bank.map(r => `<tr${r.cat === 'unclear' && !r.confirmed ? ' style="background:var(--mid-soft)"' : ''}><td class="mono">${esc(r.date)}</td><td>${esc(r.desc)}</td><td class="num">${r.credit ? rs(r.credit) : ''}</td><td class="num">${r.debit ? rs(r.debit) : ''}</td>
+    <td><select data-chg="txn" data-id="${r.id}" aria-label="Category for ${esc(r.desc)}">${opts(r.cat)}</select></td><td>${confBadge(r.conf)}</td></tr>`).join('');
+  return `${vhead('AI document intelligence', 'Six sample documents run through OCR, field extraction, classification and confidence scoring. Read values flow straight into the return and the checks. The bank statement below is classified line by line, and a real CSV can replace it.')}
+  <div class="callout">Prototype note: OCR text for the six documents is pre-loaded and the field extraction runs for real on it, including repair of misread characters. New image or PDF files are not OCR-processed in this preview.</div>
+  <div class="grid2">${DOCS.map(docCard).join('')}</div>
+  <section class="card"><div class="row" style="justify-content:space-between"><h2>Bank statement classification</h2>
+    <div class="row"><label class="btn quiet sm" for="csvIn">Upload CSV or other file</label><input type="file" id="csvIn" accept=".csv,.txt,image/*,.pdf" style="position:absolute;left:-9999px"><button class="btn sm quiet" data-act="resetbank">Load sample statement</button></div></div>
+    <p class="note">${S.bankMsg ? esc(S.bankMsg) : 'Change a category if the assistant got it wrong. Lines marked Needs a decision are asked about in the Assistant and Checks screens.'}</p>
+    <div class="tw"><table><thead><tr><th>Category</th><th class="r">Lines</th><th class="r">Money in</th><th class="r">Money out</th><th>Avg confidence</th></tr></thead><tbody>${sumRows}</tbody></table></div>
+    <details><summary>Show all ${S.bank.length} transactions</summary><div class="scroll"><table><thead><tr><th>Date</th><th>Description</th><th class="r">In</th><th class="r">Out</th><th>Category</th><th>Confidence</th></tr></thead><tbody>${txRows}</tbody></table></div></details>
+  </section>`;
+}
+
+/* ---------- Tax computation ---------- */
+function viewReturn(D) {
+  const c = D.c, p = S.p, T = SLABS[p.ty];
+  const slabRows = c.table.map((r, i) => `<tr${i === c.slab.idx ? ' style="background:var(--accent-soft);font-weight:600"' : ''}><td class="num">${rs(r[0])}</td><td class="num">${c.table[i + 1] ? rs(c.table[i + 1][0]) : 'and above'}</td><td class="num">${rs(r[1])}</td><td class="num">${pc(r[2])}</td></tr>`).join('');
+  return `${vhead('Financial classification and tax preparation', 'Income is classified into heads, deductions and credits are applied, and the slab tables are chosen by the 75% rule. Every figure has a Why button.')}
+  ${p.ty === 2027 ? '<div class="callout">Tax year 2027 view: today\'s figures are re-run on the new slabs as a projection. The return you file now is for tax year 2026.</div>' : ''}
+  <div class="grid2">
+    <section class="card"><h2>Income and deductions</h2><div class="tw"><table><tbody>
+      <tr><td>Salary</td><td class="num">${rs(p.salary)}</td><td></td></tr>
+      <tr><td>Property (rent)</td><td class="num">${rs(p.rent)}</td><td></td></tr>
+      <tr><td>Business (freelance receipts less expenses)</td><td class="num">${rs(c.biz)}</td><td></td></tr>
+      <tr class="total"><td>Total income</td><td class="num">${rs(c.total)}</td><td></td></tr>
+      <tr><td>Less Zakat</td><td class="num">${rs(-c.zakat)}</td><td></td></tr>
+      <tr class="total"><td>Taxable income</td><td class="num">${rs(c.taxable)}</td><td>${whyBtn('regime')}</td></tr></tbody></table></div>
+      <p class="note">Bank profit of ${rs(p.profitOnDebt)} is outside this total because it is taxed once as a final tax. ${whyBtn('final')}</p></section>
+    <section class="card"><h2>Which slabs apply</h2>
+      <div><div class="row" style="justify-content:space-between"><span>Salary share of taxable income</span><b class="mono">${pc(c.share, 1)}</b></div>
+      <div class="share" role="img" aria-label="Salary share ${pc(c.share, 1)}, threshold 75%"><i style="width:${Math.min(100, c.share * 100)}%"></i><u style="left:75%"></u></div>
+      <div class="row small muted" style="justify-content:space-between"><span>0%</span><span>75% line</span><span>100%</span></div></div>
+      <div><span class="pill ${c.salaried ? 'pass' : 'warn'}">${c.salaried ? 'Salaried slabs' : 'Non-salaried slabs'}</span> ${whyBtn('regime')}</div>
+      <p>${c.salaried ? 'Your salary is at least 75% of taxable income, so the lower salaried slabs apply.' : `Salary is under 75% of taxable income, so every rupee of taxable income is taxed on the higher non-salaried table.`}</p></section>
+  </div>
+  <section class="card"><h2>Tax for tax year ${c.ty}</h2><div class="tw"><table><tbody>
+    <tr><td>Slab: ${esc(slabText(c.table, c.slab.idx))}</td><td class="num">${rs(c.gross)}</td><td>${whyBtn('tax')}</td></tr>
+    <tr><td>Surcharge</td><td class="num">${rs(c.sur)}</td><td></td></tr>
+    <tr><td>Less donation credit</td><td class="num">${rs(-c.credit)}</td><td>${whyBtn('credit')}</td></tr>
+    <tr class="total"><td>Normal tax</td><td class="num">${rs(c.net)}</td><td></td></tr>
+    <tr><td>Less tax paid: employer ${rs(p.whtSalary)} and advance ${rs(p.advance)}</td><td class="num">${rs(-c.paid)}</td><td></td></tr>
+    <tr class="total"><td>${c.balance >= 0 ? 'Balance payable' : 'Refund claimable'}</td><td class="num">${rs(Math.abs(c.balance))}</td><td>${whyBtn('payable')}</td></tr>
+    <tr><td>Final tax on bank profit (already deducted)</td><td class="num">${rs(c.finalTax)}</td><td>${whyBtn('final')}</td></tr></tbody></table></div>
+    <details><summary>Show the ${c.salaried ? 'salaried' : 'non-salaried'} slab table for tax year ${c.ty}</summary><div class="tw"><table><thead><tr><th class="r">From</th><th class="r">To</th><th class="r">Fixed tax</th><th class="r">Rate on excess</th></tr></thead><tbody>${slabRows}</tbody></table></div>
+    <p class="note">Rates follow reports on the Finance Act 2026. Non-salaried slabs are treated as unchanged for tax year 2027. Rent is added to normal income as a simplification. Verify rates on the FBR site before filing.</p></details>
+  </section>`;
+}
+
+/* ---------- Wealth Statement ---------- */
+function viewWealth(D) {
+  const w = D.w, p = S.p;
+  const items = p.wealth.map((x, i) => `<tr><td>${esc(x.name)}${x.txn != null ? ' <span class="pill gold">from bank</span>' : ''}</td><td><span class="pill ${x.type === 'asset' ? 'info' : 'gold'}">${x.type === 'asset' ? 'Asset' : 'Liability'}</span></td>
+    <td class="r"><input type="number" class="num" style="width:130px;text-align:right" value="${x.open}" data-chg="wealth" data-i="${i}" data-f="open" aria-label="${esc(x.name)} at start"></td>
+    <td class="r"><input type="number" class="num" style="width:130px;text-align:right" value="${x.close}" data-chg="wealth" data-i="${i}" data-f="close" aria-label="${esc(x.name)} at end"></td></tr>`).join('');
+  const lines = w.lines.map(l => `<tr><td>${l[0]}</td><td class="num">${l[1] >= 0 ? '+' : ''}${rs(l[1])}</td></tr>`).join('');
+  const g = Math.max(-100, Math.min(100, w.gap / 15000));
+  return `${vhead('Wealth Statement and reconciliation', 'Assets and liabilities at 30 June 2025 and 30 June 2026. The engine checks that growth in net worth is explained by the money you declared.')}
+  <div class="grid2">
+    <section class="card"><h2>Assets and liabilities</h2><div class="tw"><table><thead><tr><th>Item</th><th>Type</th><th class="r">30 Jun 2025</th><th class="r">30 Jun 2026</th></tr></thead><tbody>${items}
+      <tr class="total"><td colspan="2">Net worth</td><td class="num">${rs(w.openNet)}</td><td class="num">${rs(w.closeNet)}</td></tr></tbody></table></div>
+      <div class="sl"><label for="expIn"><span>Personal expenses for the year</span><span class="note">${S.meta.expenses ? esc(S.meta.expenses.src) : ''}</span></label><input type="number" id="expIn" value="${p.expenses}" data-chg="expenses"></div></section>
+    <section class="card"><h2>What your declared money explains</h2><div class="tw"><table><tbody>${lines}
+      <tr class="total"><td>Explained change in net worth</td><td class="num">${rs(w.expected)}</td></tr>
+      <tr><td>Actual change in net worth</td><td class="num">${rs(w.actual)}</td></tr>
+      <tr class="total"><td>Difference</td><td class="num">${rs(w.gap)}</td></tr></tbody></table></div>
+      <div><div class="share" role="img" aria-label="Difference ${rs(w.gap)}"><u style="left:50%"></u><i style="left:${g >= 0 ? 50 : 50 + g / 2}%;width:${Math.abs(g) / 2}%;border-radius:0;background:${w.ok ? 'var(--hi)' : 'var(--lo)'}"></i></div>
+      <div class="row small muted" style="justify-content:space-between"><span>-1.5M</span><span>0</span><span>+1.5M</span></div></div>
+      <div class="row"><span class="pill ${w.ok ? 'pass' : 'fail'}">${w.ok ? 'Reconciled within Rs 50,000' : 'Unexplained difference'}</span>${whyBtn('gap')}${w.ok ? '' : '<button class="btn sm" data-act="ask" data-v="Wealth Statement shows an unexplained difference of ' + rs(w.gap) + '">Ask a tax professional</button>'}</div>
+      ${w.ok ? '' : '<p class="note">Tell the assistant about missing items, for example a gift or loan, or change the expense estimate.</p>'}</section>
+  </div>`;
+}
+
+/* ---------- Checks ---------- */
+function viewChecks(D) {
+  const n = s => D.checks.filter(x => x.status === s).length;
+  const rows = D.checks.map(f => `<div class="find"><div>${ICO[f.status]}</div><div><b>${esc(f.title)}</b> ${confBadge(f.conf)}<div class="note" style="color:var(--ink)">${esc(f.detail)}</div></div>
+    <div class="acts">${f.txn != null ? `<button class="btn sm" data-act="txn" data-id="${f.txn}" data-v="gift">It was a gift</button><button class="btn sm" data-act="txn" data-id="${f.txn}" data-v="loan">It was a loan</button>` : ''}
+    ${f.go ? `<button class="btn sm quiet" data-act="go" data-v="${f.go}">Open ${NAV_T.find(x => x[0] === f.go)[1]}</button>` : ''}
+    ${f.ask && f.status !== 'pass' ? `<button class="btn sm quiet" data-act="ask" data-v="${esc(f.ask)}">Ask a tax professional</button>` : ''}</div></div>`).join('');
+  return `${vhead('Reconciliation and validation', 'Every document, bank line and declared figure is cross-checked. Anything that fails or looks doubtful can be escalated to a human reviewer with context attached.')}
+  <div class="row"><span class="pill pass">${n('pass')} passed</span><span class="pill warn">${n('warn')} need attention</span><span class="pill fail">${n('fail')} failed</span></div>
+  <section class="card">${rows}</section>`;
+}
+
+/* ---------- Readiness and timeline ---------- */
+function timelineEvents() {
+  const ev = []; const L = (d, t, x) => ev.push({ d, t, x: x || '', k: 'law' });
+  L('2025-07-01', 'Tax year 2026 begins', 'Income from this date belongs to the return you are preparing.');
+  ['2025-09-15', '2025-12-15', '2026-03-15', '2026-06-15'].forEach(d => L(d, 'Advance tax instalment date', 'Applies if you pay advance tax.'));
+  L('2026-06-30', 'Tax year 2026 ends', 'Wealth Statement balances are taken on this day.');
+  L('2026-07-01', 'Tax year 2027 begins', 'New salaried slabs apply. Reports say the 9% surcharge on salaried individuals is withdrawn.');
+  L('2026-09-15', 'Advance tax instalment date', 'Applies if you pay advance tax.');
+  L('2026-09-30', 'Usual due date: tax year 2026 return', 'Confirm any FBR extension.');
+  ['2026-12-15', '2027-03-15', '2027-06-15'].forEach(d => L(d, 'Advance tax instalment date', 'Applies if you pay advance tax.'));
+  L('2027-06-30', 'Tax year 2027 ends');
+  L('2027-09-30', 'Usual due date: tax year 2027 return');
+  S.bank.forEach(r => {
+    if (r.cat === 'zakat') ev.push({ d: r.date, t: 'Zakat paid ' + rs(r.debit), x: 'Deducted from taxable income.', k: 'you' });
+    if (r.cat === 'donation') ev.push({ d: r.date, t: 'Donation paid ' + rs(r.debit), x: 'Earns a tax credit if the donee is approved.', k: 'you' });
+    if (r.cat === 'unclear' || r.cat === 'gift' || r.cat === 'loan') ev.push({ d: r.date, t: (r.cat === 'gift' ? 'Gift received ' : r.cat === 'loan' ? 'Loan received ' : 'Unclassified transfer ') + rs(r.credit), x: r.cat === 'unclear' ? 'Needs your decision.' : 'Declared in the Wealth Statement.', k: 'you' });
+  });
+  const free = S.bank.filter(r => r.cat === 'freelance');
+  if (free.length) ev.push({ d: free[free.length - 1].date, t: `${free.length} freelance payouts totalling ${rs(free.reduce((a, r) => a + r.credit, 0))}`, x: 'Last payout shown.', k: 'you' });
+  ev.sort((a, b) => a.d.localeCompare(b.d));
+  const iso = TODAY.toISOString().slice(0, 10);
+  const idx = ev.findIndex(e => e.d > iso);
+  ev.splice(idx < 0 ? ev.length : idx, 0, { d: iso, t: 'Today', x: '', k: 'now' });
+  return ev;
+}
+function gauge(score) {
+  const len = Math.PI * 80, l = score >= 80 ? 'hi' : score >= 55 ? 'mid' : 'lo';
+  return `<svg class="gauge" viewBox="0 0 180 110" role="img" aria-label="Readiness score ${score} out of 100"><path d="M10 90 A80 80 0 0 1 170 90" fill="none" stroke="var(--line)" stroke-width="14" stroke-linecap="round"/>
+    <path d="M10 90 A80 80 0 0 1 170 90" fill="none" stroke="var(--${l})" stroke-width="14" stroke-linecap="round" stroke-dasharray="${(score / 100 * len).toFixed(1)} ${len.toFixed(1)}"/>
+    <text x="90" y="82" text-anchor="middle" style="font:700 34px var(--f-display);fill:var(--ink)">${score}</text><text x="90" y="102" text-anchor="middle">out of 100</text></svg>`;
+}
+function viewReadiness(D) {
+  const parts = D.rd.parts, gaps = parts.filter(x => x.v < x.max).sort((a, b) => (b.max - b.v) - (a.max - a.v)).slice(0, 3);
+  const due = dueInfo();
+  const tl = timelineEvents().map(e => `<li class="${e.k === 'now' ? 'now' : e.d < TODAY.toISOString().slice(0, 10) ? 'done ' + e.k : e.k}"><span class="d">${fmtDate(e.d)}${e.k === 'you' ? ' &middot; yours' : ''}</span><span class="t"><b>${esc(e.t)}</b></span>${e.x ? `<span class="note">${esc(e.x)}</span>` : ''}</li>`).join('');
+  return `${vhead('Tax health and personal timeline', 'A single score for how ready the return is, the steps that would raise it, and a timeline that mixes statutory dates with events found in your own documents.')}
+  <div class="grid2">
+    <section class="card"><h2>Tax readiness score</h2>${gauge(D.rd.score)}
+      ${parts.map(x => `<div><div class="row small" style="justify-content:space-between"><span>${x.k}</span><span class="mono">${Math.round(x.v)} / ${x.max}</span></div><div class="bar"><i style="width:${x.v / x.max * 100}%"></i></div></div>`).join('')}
+      ${whyBtn('score')}</section>
+    <section class="card"><h2>Next best steps</h2>
+      ${gaps.length ? gaps.map(x => `<div class="callout"><b>${x.k}</b><br>${x.tip} Worth up to ${Math.round(x.max - x.v)} points.</div>`).join('') : '<div class="callout good">Everything is complete. The return is ready to submit.</div>'}
+      <div class="callout ${due.days < 0 ? 'bad' : ''}"><b>Filing date</b><br>${esc(due.msg)}</div></section>
+  </div>
+  <section class="card"><h2>Timeline</h2><ul class="tl">${tl}</ul></section>`;
+}
+
+/* ---------- What-if ---------- */
+function wiInit() {
+  const p = S.p; S.wi = { free: Math.max(0, p.bizReceipts - p.bizExpenses), sal: Math.round(p.salary / 12), rent: Math.round(p.rent / 12), zak: p.zakat, don: p.donation };
+}
+function scen(q, ty) {
+  const x = Object.assign({}, S.p, { ty, salary: q.sal * 12, rent: q.rent * 12, bizReceipts: q.free, bizExpenses: 0, zakat: q.zak, donation: q.don, whtSalary: Math.round(taxOn(SLABS[ty].salaried, q.sal * 12).tax) });
+  return compute(x, ty);
+}
+function curr(ty) { const x = Object.assign({}, S.p, { ty }); if (ty !== S.p.ty) x.whtSalary = Math.round(taxOn(SLABS[ty].salaried, S.p.salary).tax); return compute(x, ty); }
+function curveSVG(q) {
+  const W = 640, H = 250, L = 62, R = 16, Tp = 14, B = 34, MAX = 1500000;
+  const xs = []; for (let x = 0; x <= MAX; x += 25000) xs.push(x);
+  const ys = xs.map(x => scen(Object.assign({}, q, { free: x }), 2026).net);
+  const ymax = Math.max.apply(null, ys) * 1.1 || 1;
+  const X = v => L + v / MAX * (W - L - R), Y = v => H - B - v / ymax * (H - B - Tp);
+  const path = xs.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(ys[i]).toFixed(1)).join(' ');
+  const cliff = q.sal * 12 / 0.75 - q.sal * 12 - q.rent * 12 + q.zak;
+  const grid = [0, .25, .5, .75, 1].map(f => { const v = ymax * f / 1.1; return `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${(v / 1e6).toFixed(2)}M</text>`; }).join('');
+  const xt = [0, 500000, 1000000, 1500000].map(v => `<text x="${X(v)}" y="${H - 12}" text-anchor="${v === 0 ? 'start' : v === MAX ? 'end' : 'middle'}">${v / 1e6}M</text>`).join('');
+  const cur = scen(q, 2026).net;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Normal tax against freelance net income, with the 75% salary line">${grid}${xt}
+    ${cliff > 0 && cliff < MAX ? `<line x1="${X(cliff)}" x2="${X(cliff)}" y1="${Tp}" y2="${H - B}" stroke="var(--gold)" stroke-width="2" stroke-dasharray="5 4"/><text x="${X(cliff) + 6}" y="${Tp + 12}" style="fill:var(--gold)">75% line at ${rs(cliff)}</text>` : ''}
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/><circle cx="${X(q.free)}" cy="${Y(cur)}" r="6" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+    <text x="${W / 2}" y="${H - 1}" text-anchor="middle">Freelance net income for the year (tax year 2026 slabs)</text></svg>`;
+}
+function wiHTML() {
+  const q = S.wi, cols = [['Your return', 2026, curr(2026)], ['Scenario', 2026, scen(q, 2026)], ['Your income on 2027 slabs', 2027, curr(2027)], ['Scenario on 2027 slabs', 2027, scen(q, 2027)]];
+  const row = (l, f) => `<tr><td>${l}</td>${cols.map(c => `<td class="num">${f(c[2])}</td>`).join('')}</tr>`;
+  const s26 = cols[1][2], c26 = cols[0][2], diff = s26.net - c26.net;
+  return `<div class="callout ${diff > 0 ? 'bad' : 'good'}">Scenario tax for 2026 is <b>${rs(s26.net)}</b>, ${diff === 0 ? 'the same as' : rs(Math.abs(diff)) + (diff > 0 ? ' more than' : ' less than')} your return. ${s26.salaried !== c26.salaried ? `The regime moves to ${s26.salaried ? 'salaried' : 'non-salaried'} slabs.` : ''}</div>
+  <div class="tw"><table><thead><tr><th></th>${cols.map(c => `<th class="r">${c[0]}<br>TY${c[1]}</th>`).join('')}</tr></thead><tbody>
+    ${row('Taxable income', c => rs(c.taxable))}${row('Salary share', c => pc(c.share, 1))}${row('Slabs', c => c.salaried ? 'Salaried' : 'Non-salaried')}${row('Normal tax', c => rs(c.net))}${row('Effective rate', c => pc(c.eff, 1))}${row('Balance after employer tax', c => rs(c.balance))}</tbody></table></div>
+  <h3>Normal tax as freelance income changes</h3>${curveSVG(q)}`;
+}
+function viewWhatIf() {
+  if (!S.wi) wiInit();
+  const q = S.wi;
+  const sl = (k, label, min, max, step) => `<div class="sl"><label for="wi-${k}"><span>${label}</span><span class="mono" id="wv-${k}">${rs(q[k])}</span></label><input type="range" id="wi-${k}" min="${min}" max="${max}" step="${step}" value="${q[k]}" data-wi="${k}"></div>`;
+  return `${vhead('What-if tax simulator', 'Change income, Zakat or donations and see the tax on tax year 2026 and 2027 slabs. Nothing here changes your return.')}
+  <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))"><section class="card"><h2>Scenario</h2>
+    ${sl('free', 'Freelance net income per year', 0, 1500000, 25000)}${sl('sal', 'Monthly salary', 100000, 600000, 5000)}${sl('rent', 'Monthly rent received', 0, 150000, 5000)}${sl('zak', 'Zakat paid', 0, 200000, 5000)}${sl('don', 'Donations paid', 0, 400000, 10000)}
+    <button class="btn quiet" data-act="wireset">Reset to my return</button></section>
+    <section class="card" style="grid-column:span 2;min-width:0" id="wiOut">${wiHTML()}</section></div>`;
+}
+
+/* ---------- Review and export ---------- */
+function returnText(D) {
+  const c = D.c, p = S.p, w = D.w;
+  return [`INCOME TAX RETURN SUMMARY (prototype), tax year ${c.ty}`, 'Taxpayer: Zara Khan (sample)', '',
+    `Salary: ${rs(p.salary)}`, `Rent: ${rs(p.rent)}`, `Business: ${rs(c.biz)}`, `Total income: ${rs(c.total)}`, `Zakat: ${rs(c.zakat)}`, `Taxable income: ${rs(c.taxable)}`,
+    `Slabs: ${c.salaried ? 'salaried' : 'non-salaried'} (salary share ${pc(c.share, 1)})`, `Normal tax: ${rs(c.net)}`, `Tax paid: ${rs(c.paid)}`, `${c.balance >= 0 ? 'Balance payable' : 'Refund'}: ${rs(Math.abs(c.balance))}`,
+    `Final tax on bank profit: ${rs(c.finalTax)}`, '', `Wealth Statement: net worth ${rs(w.openNet)} to ${rs(w.closeNet)}; difference ${rs(w.gap)} (${w.ok ? 'reconciled' : 'not reconciled'})`,
+    '', 'Prepared by an AI assistant. Submission is done by the taxpayer in IRIS.'].join('\n');
+}
+function viewReview(D) {
+  const c = D.c, p = S.p, w = D.w, fails = D.checks.filter(x => x.status === 'fail').length;
+  const ready = D.rd.score >= 80 && !fails;
+  const mine = S.esc.filter(e => e.mine);
+  const step = S.signoff.reviewed ? 3 : ready ? 2 : 1;
+  const src = k => S.meta[k] ? `${esc(S.meta[k].src)} ${confBadge(S.meta[k].conf)}` : '<span class="muted">not provided</span>';
+  return `${vhead('Review, export and reporting', 'The prepared return as the taxpayer will see it before submission. Review every figure, confirm, then copy the data for IRIS.')}
+  <div class="stepper" aria-label="Progress"><span class="on">1 Draft</span><span class="${step >= 2 ? 'on' : ''}">2 Ready for review</span><span class="${step >= 3 ? 'on' : ''}">3 Taxpayer confirmed</span></div>
+  ${ready ? '' : `<div class="callout bad">Not ready yet: readiness is ${D.rd.score}/100${fails ? ' and ' + fails + ' check' + (fails > 1 ? 's' : '') + ' failed' : ''}. Fix the items under Checks, or ask a tax professional.</div>`}
+  <div class="grid2">
+    <section class="card"><h2>Income tax return, tax year ${c.ty}</h2><div class="tw"><table><thead><tr><th>Head</th><th class="r">Amount</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Salary</td><td class="num">${rs(p.salary)}</td><td class="small">${src('salary')}</td></tr>
+      <tr><td>Property</td><td class="num">${rs(p.rent)}</td><td class="small">${src('rent')}</td></tr>
+      <tr><td>Business</td><td class="num">${rs(c.biz)}</td><td class="small">${src('bizReceipts')}</td></tr>
+      <tr><td>Zakat deduction</td><td class="num">${rs(-c.zakat)}</td><td class="small">${src('zakat')}</td></tr>
+      <tr class="total"><td>Taxable income</td><td class="num">${rs(c.taxable)}</td><td></td></tr>
+      <tr><td>Normal tax (${c.salaried ? 'salaried' : 'non-salaried'} slabs)</td><td class="num">${rs(c.net)}</td><td></td></tr>
+      <tr><td>Tax paid</td><td class="num">${rs(c.paid)}</td><td></td></tr>
+      <tr class="total"><td>${c.balance >= 0 ? 'Balance payable' : 'Refund'}</td><td class="num">${rs(Math.abs(c.balance))}</td><td></td></tr>
+      <tr><td>Final tax on bank profit</td><td class="num">${rs(c.finalTax)}</td><td class="small">${src('profitOnDebt')}</td></tr></tbody></table></div></section>
+    <section class="card"><h2>Wealth Statement</h2><div class="kpi"><small>Net worth 30 Jun 2025</small><b>${rs(w.openNet)}</b></div><div class="kpi"><small>Net worth 30 Jun 2026</small><b>${rs(w.closeNet)}</b></div>
+      <div><span class="pill ${w.ok ? 'pass' : 'fail'}">${w.ok ? 'Reconciled' : 'Difference ' + rs(w.gap)}</span></div>
+      <h3>Confirm and export</h3>
+      <div class="sign"><button class="btn ${S.signoff.reviewed ? 'primary' : ''}" data-act="signoff" aria-pressed="${S.signoff.reviewed}">${S.signoff.reviewed ? 'Confirmed' : 'I have reviewed these figures'}</button><span class="note">Marks the draft as confirmed by you. It does not file anything.</span></div>
+      <div class="row"><button class="btn quiet" data-act="copysum">Copy summary</button><button class="btn quiet" data-act="copyjson">Copy data as JSON</button><button class="btn quiet" data-act="ask" data-v="Please review the full return before I submit">Request professional review</button></div>
+      <p class="note">Downloads are disabled in this preview, so export copies text. A production build would produce a PDF and an IRIS-ready file. Submission is done in IRIS and is not part of this prototype.</p></section>
+  </div>
+  <section class="card"><h2>Messages with the tax professional</h2>${mine.length ? mine.map(e => `<div><b>${esc(e.topic)}</b> <span class="pill ${e.status === 'open' ? 'warn' : 'pass'}">${e.status === 'open' ? 'Waiting' : 'Answered'}</span><div class="thread">${e.thread.map(t => `<div><b>${esc(t.who)}</b><br>${esc(t.t)}</div>`).join('')}</div></div>`).join('') : '<p class="note">No questions sent. Use Ask a tax professional on any check, or Request professional review above.</p>'}</section>`;
+}
+
+/* ---------- Glossary ---------- */
+function glossHTML(q) {
+  const l = GLOSS.filter(g => !q || (g[0] + ' ' + g[1] + ' ' + g[2]).toLowerCase().includes(q.toLowerCase()));
+  return l.length ? l.map(g => `<div class="card flat"><h3>${esc(g[1])} <span class="pill info">${esc(g[0])}</span></h3><p>${esc(g[2])}</p><p class="note">In your return: ${esc(g[3])}</p></div>`).join('') : '<p class="note">No matching term. Ask the assistant instead.</p>';
+}
+function viewGlossary() {
+  return `${vhead('Tax terminology and FBR language guide', 'Plain-language meanings for the terms FBR forms and notices use. The same explanations are available from the assistant.')}
+  <div><label for="glQ" class="note">Search terms</label><br><input type="text" id="glQ" value="${esc(S.glossQ)}" placeholder="for example ATL, withholding, credit" style="width:min(100%,420px)"></div>
+  <div class="grid3" id="glList">${glossHTML(S.glossQ)}</div>`;
+}
+/*END UI3*/
+/*UI4*/
+/* ---------- Professional workspace ---------- */
+const CLIENTS = [
+  { name: 'Tariq Mehmood', type: 'Salaried', score: 91, flags: 0, bal: 'Refund Rs 18,400', note: 'Ready to submit' },
+  { name: 'Imran Traders', type: 'Sole proprietor', score: 58, flags: 3, bal: 'Rs 412,000 payable', note: 'Bank deposits exceed declared sales' },
+  { name: 'Dr. Sana Iqbal', type: 'Freelancer', score: 66, flags: 2, bal: 'Rs 96,500 payable', note: 'Export regime eligibility unclear' }
+];
+function seedPro() {
+  S.esc = [
+    { id: 's1', mine: false, client: 'Imran Traders', topic: 'Bank deposits exceed declared sales by Rs 1,200,000', status: 'open', ctx: 'Readiness 58/100. Two failed checks, one document unreadable.', thread: [{ who: 'AI', t: 'Escalated with the bank classification and the sales ledger attached.' }] },
+    { id: 's2', mine: false, client: 'Dr. Sana Iqbal', topic: 'Is the 0.25% IT export regime available for her income?', status: 'open', ctx: 'Readiness 66/100. Receipts arrive through a payment platform. Registration status not found in documents.', thread: [{ who: 'AI', t: 'Low confidence on regime eligibility, so this was passed to a human.' }] }
+  ];
+}
+function draftReply(e) {
+  const t = e.topic.toLowerCase();
+  if (/unexplained|difference|wealth/.test(t)) return 'Please send the gift letter or loan agreement for the unexplained amount and confirm which account received it. Once it is recorded in the Wealth Statement the difference should close.';
+  if (/donee|approved/.test(t)) return 'Please confirm the trust is on FBR\'s approved donee list. If it is not, the donation credit has to be removed and the balance payable will rise.';
+  if (/freelance|export/.test(t)) return 'I need the registration certificate and proof that proceeds came through banking channels. If both are in order the final regime may apply, otherwise the income stays in normal slabs.';
+  if (/rent/.test(t)) return 'Please send the tenancy agreement and rent receipts. The return and the bank do not agree on rent, and one of them has to be corrected before filing.';
+  if (/employer|salary/.test(t)) return 'Please ask the employer for a corrected tax deduction certificate. The deduction does not match the slab for your salary.';
+  return 'I have reviewed the attached figures. Please send supporting documents for the flagged items and I will confirm before you submit.';
+}
+function viewClients(D) {
+  const rows = [{ name: 'Zara Khan', type: 'Salaried with side income', score: D.rd.score, flags: D.checks.filter(x => x.status !== 'pass').length, bal: (D.c.balance >= 0 ? rs(D.c.balance) + ' payable' : 'Refund ' + rs(-D.c.balance)), note: D.c.salaried ? 'Salaried slabs' : 'Salary share ' + pc(D.c.share, 1) + ', non-salaried slabs', live: true }].concat(CLIENTS);
+  const sel = S.proSel || 'Zara Khan';
+  const tr = rows.map(r => `<tr><td><b>${r.name}</b>${r.live ? ' <span class="pill info">live</span>' : ''}<br><span class="note">${r.type}</span></td><td><span class="pill ${r.score >= 80 ? 'pass' : r.score >= 55 ? 'warn' : 'fail'}">${r.score}/100</span></td><td class="num">${r.flags}</td><td class="num">${r.bal}</td><td class="small">${esc(r.note)}</td><td><button class="btn sm" data-act="prosel" data-v="${esc(r.name)}" aria-pressed="${sel === r.name}">Open</button></td></tr>`).join('');
+  let detail;
+  if (sel === 'Zara Khan') {
+    const flagged = D.checks.filter(x => x.status !== 'pass');
+    detail = `<section class="card"><h2>Zara Khan: tax professional view</h2><div class="grid2"><div><h3>Audit risk indicators</h3>${flagged.length ? flagged.map(f => `<div class="find">${ICO[f.status]}<div><b>${esc(f.title)}</b> ${confBadge(f.conf)}<div class="note" style="color:var(--ink)">${esc(f.detail)}</div></div></div>`).join('') : '<p class="note">No open flags.</p>'}</div>
+      <div><h3>Return at a glance</h3><div class="kpi"><small>Taxable income</small><b>${rs(D.c.taxable)}</b></div><div class="kpi"><small>Normal tax</small><b>${rs(D.c.net)}</b></div><div class="kpi"><small>Wealth difference</small><b>${rs(D.w.gap)}</b></div>
+      <div class="row"><button class="btn sm" data-act="draftnote">Draft note to client</button></div><textarea id="noteBox" rows="5" style="width:100%;margin-top:8px" placeholder="The draft appears here"></textarea></div></div></section>`;
+  } else detail = `<section class="card"><p class="note">${esc(sel)} is an example client. Only Zara Khan carries live figures in this prototype.</p></section>`;
+  return `${vhead('Tax professional workspace: clients', 'One screen for the whole practice. The AI has already read documents, run checks and ranked each client by how ready the return is.')}
+  <section class="card"><div class="tw"><table><thead><tr><th>Client</th><th>Readiness</th><th class="r">Open flags</th><th class="r">Balance</th><th>Main issue</th><th></th></tr></thead><tbody>${tr}</tbody></table></div></section>${detail}`;
+}
+function viewQueue() {
+  const items = S.esc.map(e => `<section class="card"><div class="row" style="justify-content:space-between"><div><h3>${esc(e.topic)}</h3><span class="note">${esc(e.client)}</span></div><span class="pill ${e.status === 'open' ? 'warn' : 'pass'}">${e.status === 'open' ? 'Open' : 'Answered'}</span></div>
+    <p class="small">${esc(e.ctx)}</p><div class="thread">${e.thread.map(t => `<div><b>${esc(t.who)}</b><br>${esc(t.t)}</div>`).join('')}</div>
+    ${e.status === 'open' ? `<textarea id="rep-${e.id}" rows="3" style="width:100%" placeholder="Write a reply"></textarea><div class="row"><button class="btn sm quiet" data-act="draft" data-id="${e.id}">AI draft reply</button><button class="btn sm primary" data-act="reply" data-id="${e.id}">Send reply</button></div>` : ''}</section>`).join('');
+  return `${vhead('Review queue', 'Questions the AI could not settle with enough confidence arrive here with the figures and checks attached. Replies appear in the taxpayer\'s Review screen.')}${items || '<p class="note">Nothing waiting.</p>'}`;
+}
+function askCopilot(q) {
+  const t = q.toLowerCase();
+  const sc = KB.map(e => ({ e, s: e.k.reduce((a, k) => a + (t.includes(k) ? 1 : 0), 0) })).filter(x => x.s).sort((a, b) => b.s - a.s);
+  S.copilot.push({ q, hits: sc.slice(0, 3).map(x => x.e) });
+}
+function viewCopilot() {
+  const sug = ['Why did my client move to non-salaried slabs?', 'How is a donation credit calculated?', 'How do I reconcile a gift in the Wealth Statement?', 'Is the IT export regime still available?'];
+  const hist = S.copilot.map(h => `<section class="card"><p><b>${esc(h.q)}</b></p>${h.hits.length ? `<p>${esc(h.hits[0].a)}</p><p class="note"><b>Basis:</b> ${esc(h.hits[0].ref)}</p>${h.hits.slice(1).map(x => `<p class="note"><b>Also see:</b> ${esc(x.ref)}</p>`).join('')}` : '<p class="note">Nothing in the sample knowledge base matches. A production build would search the full Ordinance, circulars and case law.</p>'}<span class="pill gold">Draft for professional verification</span></section>`).join('');
+  return `${vhead('Tax research copilot', 'Ask a tax question and get a short answer with its legal basis. The sample knowledge base holds ten topics. A production build would search the full law.')}
+  <form class="row" id="copForm"><label for="copIn" class="note" style="position:absolute;left:-9999px">Question</label><input type="text" id="copIn" style="flex:1;min-width:220px" placeholder="Ask a tax question" autocomplete="off"><button class="btn primary" type="submit">Ask</button></form>
+  <div class="row">${sug.map(s => `<button class="chip" data-act="cop" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>${hist}`;
+}
+
+/* ---------- shell, render ---------- */
+function shell(D, view) {
+  const nav = S.role === 'taxpayer' ? NAV_T : NAV_P;
+  const bd = { documents: DOCS.filter(d => S.docState[d.id].status !== 'done').length, checks: D.checks.filter(x => x.status !== 'pass').length, review: S.esc.filter(e => e.mine && e.status === 'answered').length, queue: S.esc.filter(e => e.status === 'open').length };
+  const tog = (k, l, on) => `<button class="tog" data-act="a11y" data-v="${k}" aria-pressed="${on}"><span>${l}</span><span>${on ? 'On' : 'Off'}</span></button>`;
+  const c = D.c;
+  const dr = S.drawer ? `<aside class="drawer" role="dialog" aria-labelledby="dTitle"><div class="row" style="justify-content:space-between"><h2 id="dTitle">${esc(S.drawer.title)}</h2><button class="btn sm quiet" id="drawerClose" data-act="closedrawer">Close</button></div><div>${confBadge(S.drawer.conf)}</div>${S.drawer.html}<div class="row"><button class="btn sm" data-act="ask" data-v="${esc(S.drawer.title)}">Ask a tax professional</button><button class="btn sm quiet" data-act="speakdrawer">Read aloud</button></div></aside>` : '';
+  return `<div class="shell"><nav class="rail" aria-label="Modules"><div class="brand"><b>AI Tax Platform</b><span>Prototype. Not an FBR product.</span></div>
+    ${nav.map(([k, l], i) => `<button class="nav" data-act="nav" data-v="${k}" ${S.view === k ? 'aria-current="page"' : ''} aria-keyshortcuts="Alt+${i + 1}"><span>${l}</span>${bd[k] ? `<span class="badge">${bd[k]}</span>` : ''}</button>`).join('')}
+    <div class="sep"></div><div class="a11y" style="display:flex;flex-direction:column;gap:6px">${tog('text', 'Larger text', S.a11y.text === 'lg')}${tog('contrast', 'High contrast', S.a11y.contrast === 'high')}${tog('read', 'Read replies aloud', !!S.autoRead)}</div></nav>
+    <div class="main"><header class="top"><div class="seg" role="group" aria-label="Who is using this"><button data-act="role" data-v="taxpayer" aria-pressed="${S.role === 'taxpayer'}">Taxpayer</button><button data-act="role" data-v="pro" aria-pressed="${S.role === 'pro'}">Tax professional</button></div>
+      <div class="seg" role="group" aria-label="Tax year"><button data-act="ty" data-v="2026" aria-pressed="${S.p.ty === 2026}">Tax year 2026</button><button data-act="ty" data-v="2027" aria-pressed="${S.p.ty === 2027}">Tax year 2027</button></div><div class="grow"></div>
+      <div class="metric"><small>${c.balance >= 0 ? 'Payable' : 'Refund'}</small><b>${rs(Math.abs(c.balance))}</b></div>
+      <div class="metric"><small>Slabs</small><b>${c.salaried ? 'Salaried' : 'Non-salaried'}</b></div>
+      <div class="metric"><small>Readiness</small><b>${D.rd.score}/100</b></div></header>
+      <main class="view" id="view">${view}</main></div></div>${dr}`;
+}
+function render() {
+  const D = derive(), root = document.documentElement;
+  root.dataset.text = S.a11y.text; root.dataset.contrast = S.a11y.contrast;
+  const V = { assistant: viewAssistant, documents: viewDocuments, return: viewReturn, wealth: viewWealth, checks: viewChecks, readiness: viewReadiness, whatif: viewWhatIf, review: viewReview, glossary: viewGlossary, clients: viewClients, queue: viewQueue, copilot: viewCopilot };
+  $('#app').innerHTML = shell(D, V[S.view](D));
+  const m = $('#msgs'); if (m) m.scrollTop = m.scrollHeight;
+  if (S.drawer) { const b = $('#drawerClose'); if (b) b.focus(); }
+}
+
+/* ---------- voice ---------- */
+function speak(t) {
+  try { const u = new SpeechSynthesisUtterance(String(t)); window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+  catch (e) { toast('Read aloud is not available in this browser.'); }
+}
+function listen() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice input is not supported here. Type your message.'); return; }
+  try {
+    const r = new SR(); r.lang = 'en-PK';
+    r.onresult = e => { const el = $('#chatIn'); if (el) el.value = e.results[0][0].transcript; submitText(e.results[0][0].transcript); };
+    r.onerror = e => toast(e.error === 'not-allowed' ? 'Microphone access is blocked in this preview. Type instead. Read aloud still works.' : 'Voice input failed. Type your message.');
+    r.start(); toast('Listening');
+  } catch (e) { toast('Voice input is not available. Type your message.'); }
+}
+function submitText(t) {
+  t = String(t || '').trim(); if (!t) return;
+  userSay(t); respond(t); render();
+  const el = $('#chatIn'); if (el) el.focus();
+  if (S.autoRead) { const last = S.chat[S.chat.length - 1]; if (last && last.role === 'bot') speak(strip(last.html)); }
+}
+
+/* ---------- events ---------- */
+function onFile(f) {
+  const clear = () => { S.p.gifts = S.p.gifts.filter(g => g.txn == null); S.p.wealth = S.p.wealth.filter(x => x.txn == null); };
+  if (/\.(csv|txt)$/i.test(f.name)) {
+    const rd = new FileReader();
+    rd.onload = () => { const r = importBank(String(rd.result)); if (r.error) S.bankMsg = r.error; else { S.bank = r.bank; clear(); applyDoc(S, DOCS[1]); S.bankMsg = `Loaded ${r.bank.length} transactions from ${f.name}.`; } render(); };
+    rd.readAsText(f);
+  } else { S.bankMsg = `${f.name} was added to this session. This preview cannot run OCR on new files. The six sample documents show the full pipeline.`; render(); }
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  const a = el.dataset.act, v = el.dataset.v, id = el.dataset.id;
+  const A = {
+    nav: () => go(v), go: () => go(v),
+    role: () => { S.role = v; S.view = v === 'taxpayer' ? 'assistant' : 'clients'; S.drawer = null; render(); },
+    ty: () => { S.p.ty = +v; render(); },
+    say: () => submitText(v),
+    mic: listen,
+    speak: () => speak(strip(S.chat[+el.dataset.i].html)),
+    explain: () => { S.drawer = explain(v); render(); },
+    closedrawer: () => { S.drawer = null; render(); },
+    speakdrawer: () => speak(S.drawer.title + '. ' + strip(S.drawer.html)),
+    confirm: () => { const m = S.meta[v]; m.conf = 0.98; m.confirmed = true; m.src += ' (confirmed)'; render(); },
+    extract: () => runExtraction(v),
+    resetbank: () => { S.bank = genSampleBank(); S.bankMsg = ''; S.p.gifts = S.p.gifts.filter(g => g.txn == null); S.p.wealth = S.p.wealth.filter(x => x.txn == null); applyDoc(S, DOCS[1]); render(); },
+    txn: () => { setTxnCat(+id, v); botSay(`Recorded the transfer as a ${v}. The Wealth Statement difference is now ${rs(wealthCalc(S.p, compute(S.p)).gap)}.`, { conf: 1 }); render(); },
+    ask: () => { if (escalate(v)) { botSay('Sent to a tax professional: ' + esc(v) + '. You can follow the reply under Review and export.', { conf: 1 }); } S.drawer = null; render(); },
+    signoff: () => { S.signoff.reviewed = !S.signoff.reviewed; render(); },
+    copysum: () => copyText(returnText(derive()), 'Summary copied.'),
+    copyjson: () => { const D = derive(); copyText(JSON.stringify({ taxYear: D.c.ty, profile: S.p, computation: { totalIncome: D.c.total, taxable: D.c.taxable, regime: D.c.salaried ? 'salaried' : 'non-salaried', normalTax: D.c.net, taxPaid: D.c.paid, balance: D.c.balance, finalTax: D.c.finalTax }, wealth: { opening: D.w.openNet, closing: D.w.closeNet, difference: D.w.gap } }, null, 2), 'JSON copied.'); },
+    wireset: () => { wiInit(); render(); },
+    a11y: () => { if (v === 'text') S.a11y.text = S.a11y.text === 'lg' ? 'normal' : 'lg'; else if (v === 'contrast') S.a11y.contrast = S.a11y.contrast === 'high' ? 'normal' : 'high'; else S.autoRead = !S.autoRead; try { localStorage.setItem('taxproto-a11y', JSON.stringify({ a: S.a11y, r: !!S.autoRead })); } catch (x) { } render(); },
+    prosel: () => { S.proSel = v; render(); },
+    draftnote: () => { const D = derive(); const f = D.checks.filter(x => x.status !== 'pass').slice(0, 3); $('#noteBox').value = 'Dear Zara,\n\nYour return is ' + D.rd.score + '/100 ready. Before filing, please:\n' + (f.length ? f.map((x, i) => (i + 1) + '. ' + x.title + '. ' + x.detail).join('\n') : '1. Nothing outstanding.') + '\n\nRegards'; },
+    draft: () => { const en = S.esc.find(x => x.id === id); $('#rep-' + id).value = draftReply(en); },
+    reply: () => { const en = S.esc.find(x => x.id === id), box = $('#rep-' + id); if (!box.value.trim()) { toast('Write a reply first, or use AI draft reply.'); return; } en.thread.push({ who: 'Tax professional', t: box.value.trim() }); en.status = 'answered'; render(); toast('Reply sent.'); },
+    cop: () => { askCopilot(v); render(); }
+  };
+  if (A[a]) A[a]();
+});
+document.addEventListener('change', e => {
+  const el = e.target, k = el.dataset && el.dataset.chg;
+  if (k === 'txn') { setTxnCat(+el.dataset.id, el.value); render(); }
+  else if (k === 'wealth') { S.p.wealth[+el.dataset.i][el.dataset.f] = +el.value || 0; render(); }
+  else if (k === 'expenses') { S.p.expenses = +el.value || 0; S.meta.expenses = { conf: 0.9, src: 'Your entry' }; render(); }
+  else if (el.id === 'csvIn' && el.files[0]) onFile(el.files[0]);
+});
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (el.dataset && el.dataset.wi) { S.wi[el.dataset.wi] = +el.value; const lab = $('#wv-' + el.dataset.wi); if (lab) lab.textContent = rs(+el.value); $('#wiOut').innerHTML = wiHTML(); }
+  else if (el.id === 'glQ') { S.glossQ = el.value; $('#glList').innerHTML = glossHTML(el.value); }
+});
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  if (e.target.id === 'chatForm') { const el = $('#chatIn'); const t = el.value; el.value = ''; submitText(t); }
+  else if (e.target.id === 'copForm') { const t = $('#copIn').value.trim(); if (t) { askCopilot(t); render(); } }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.drawer) { S.drawer = null; render(); return; }
+  const nav = S.role === 'taxpayer' ? NAV_T : NAV_P;
+  if (e.altKey && /^[1-9]$/.test(e.key) && nav[+e.key - 1]) { e.preventDefault(); go(nav[+e.key - 1][0]); return; }
+  if (e.key === '/' && S.view === 'assistant' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); const el = $('#chatIn'); if (el) el.focus(); }
+});
+
+/* ---------- start ---------- */
+try { const a = JSON.parse(localStorage.getItem('taxproto-a11y') || 'null'); if (a) { S.a11y = a.a || S.a11y; S.autoRead = !!a.r; } } catch (x) { }
+seedPro();
+botSay('Hello Zara. I have read 4 of your 6 documents for tax year 2026 and filled in your return. Two are still waiting: the freelance earnings sheet and the donation receipt. Open Documents to run them, or just tell me about your finances.', { conf: 0.95 });
+const u0 = S.bank.find(r => r.cat === 'unclear');
+botSay(`One more thing. On ${fmtDate(u0.date)} ${rs(u0.credit)} arrived from "M KHAN". I cannot tell whether it was a gift, a loan or income, and the answer changes your Wealth Statement. Which was it?`, { conf: u0.conf });
+render();
+/*END UI4*/
+</script>
+
+</body></html>
